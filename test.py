@@ -84,7 +84,12 @@ class Backbone(nn.Module):
         x = self.input_layer(x)
         for module in self.body: x = module(x)
 
-        x = self.output_layer_tiny(x)
+        x = to_tiny(x)
+        x = self.bn_tiny(x)
+        x = to_torch(x)
+        x = self.output_layer_tiny[1](x)
+        x = self.output_layer_tiny[2](x)
+        x = self.output_layer_tiny[3](x)
         x = to_tiny(x)
         norm = tinyTensor.sqrt(tinyTensor.sum(x * x, keepdim=True))
         output = x / norm
@@ -108,6 +113,11 @@ model_statedict = {key[6:]:val for key, val in statedict.items() if key.startswi
 model.load_state_dict(model_statedict)
 
 del model.output_layer_tiny[1]
+model.bn_tiny = tiny_nn.BatchNorm2d(512)
+model.bn_tiny.weight = to_tiny(model.output_layer[0].weight)
+model.bn_tiny.bias = to_tiny(model.output_layer[0].bias)
+model.bn_tiny.running_mean = to_tiny(model.output_layer[0].running_mean)
+model.bn_tiny.running_var = to_tiny(model.output_layer[0].running_var)
 
 model.eval() # cos dropout
 
