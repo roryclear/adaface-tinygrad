@@ -86,14 +86,9 @@ class Backbone(nn.Module):
 
         x = to_tiny(x)
         x = self.bn_tiny(x)
-        #x = self.linear_tiny(x)
-        x = self.output_layer_tiny[1](x)
-        x = to_tiny(x)
+        x = x.view(x.size(0), -1)
         x = self.linear_tiny(x)
-        x = to_torch(x)
-        x = self.output_layer_tiny[3](x)
-        print(self.output_layer_tiny[2])
-        x = to_tiny(x)
+        x = self.bn_tiny2(x)
         norm = tinyTensor.sqrt(tinyTensor.sum(x * x, keepdim=True))
         output = x / norm
         output = to_torch(output)
@@ -116,14 +111,21 @@ model_statedict = {key[6:]:val for key, val in statedict.items() if key.startswi
 model.load_state_dict(model_statedict)
 
 del model.output_layer_tiny[1]
-model.bn_tiny = tiny_nn.BatchNorm2d(512)
 model.linear_tiny = tiny_nn.Linear(512 * 7 * 7, 512)
 model.linear_tiny.weight = to_tiny(model.output_layer[3].weight)
 model.linear_tiny.bias = to_tiny(model.output_layer[3].bias)
+model.bn_tiny = tiny_nn.BatchNorm2d(512)
 model.bn_tiny.weight = to_tiny(model.output_layer[0].weight)
 model.bn_tiny.bias = to_tiny(model.output_layer[0].bias)
 model.bn_tiny.running_mean = to_tiny(model.output_layer[0].running_mean)
 model.bn_tiny.running_var = to_tiny(model.output_layer[0].running_var)
+
+
+model.bn_tiny2 = tiny_nn.BatchNorm(512, affine=False)
+model.bn_tiny2.running_mean = to_tiny(model.output_layer[4].running_mean)
+model.bn_tiny2.running_var = to_tiny(model.output_layer[4].running_var)
+#model.bn_tiny2.weight = to_tiny(model.output_layer[4].weight)
+#model.bn_tiny2.bias = to_tiny(model.output_layer[4].bias)
 
 model.eval() # cos dropout
 
