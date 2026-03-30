@@ -56,43 +56,23 @@ class BasicBlockIR(nn.Module):
         return res + shortcut
 
 
-class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])): pass # todo ???
 
-def get_block(in_channel, depth, num_units, stride=2):
-    return [Bottleneck(in_channel, depth, stride)] +\
-           [Bottleneck(depth, depth, 1) for i in range(num_units - 1)]
-
-def get_blocks(num_layers):
-    blocks = [
-        get_block(in_channel=64, depth=64, num_units=3),
-        get_block(in_channel=64, depth=128, num_units=4),
-        get_block(in_channel=128, depth=256, num_units=14),
-        get_block(in_channel=256, depth=512, num_units=3)
-    ]
-    return blocks
-
+sizes = [[64, 64, 2], [64, 64, 1], [64, 64, 1], [64, 128, 2], [128, 128, 1], [128, 128, 1], [128, 128, 1], [128, 256, 2], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 512, 2], [512, 512, 1], [512, 512, 1]]
 
 class Backbone(nn.Module):
     def __init__(self, input_size, num_layers):
         super(Backbone, self).__init__()
         self.input_layer = nn.Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
                                       nn.BatchNorm2d(64), nn.PReLU(64))
-        blocks = get_blocks(num_layers)
         output_channel = 512
-
 
         self.output_layer = nn.Sequential(nn.BatchNorm2d(output_channel),
                                     nn.Dropout(0.4), Flatten(),
                                     nn.Linear(output_channel * 7 * 7, 512),
                                     nn.BatchNorm1d(512, affine=False))
 
-
         modules = []
-        for block in blocks:
-            for bottleneck in block:
-                modules.append(
-                    BasicBlockIR(bottleneck.in_channel, bottleneck.depth,
-                                bottleneck.stride))
+        for size in sizes: modules.append(BasicBlockIR(size[0], size[1], size[2]))
         self.body = nn.Sequential(*modules)
 
 
@@ -100,7 +80,7 @@ class Backbone(nn.Module):
         x = self.input_layer(x)
         for module in self.body: x = module(x)
 
-        x = self.output_layer(x)
+        x = self.output_layer_tiny(x)
         x = to_tiny(x)
         norm = tinyTensor.sqrt(tinyTensor.sum(x * x, keepdim=True))
         output = x / norm
@@ -116,6 +96,9 @@ def to_input(pil_rgb_image):
     return tensor
 
 model = Backbone(112, 50)
+
+model.output_layer_tiny = to_tiny_seq(model.output_layer)
+
 statedict = torch.load("adaface_ir50_ms1mv2.ckpt",  map_location="cpu", weights_only=False)['state_dict']
 model_statedict = {key[6:]:val for key, val in statedict.items() if key.startswith('model.')}
 model.load_state_dict(model_statedict)
