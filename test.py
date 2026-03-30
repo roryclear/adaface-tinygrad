@@ -6,7 +6,7 @@ from collections import namedtuple
 import torch
 import torch.nn as nn
 
-from tinygrad import Tensor as tinyTensor
+from tinygrad import Tensor as tinyTensor, nn as tiny_nn
 from torch import Tensor
 
 
@@ -26,12 +26,16 @@ class tiny_Seq():
     def __len__(self): return len(self.list)
     def __setitem__(self, key, value): self.list[key] = value
     def __getitem__(self, idx): return self.list[idx]
+    def __delitem__(self, idx): del self.list[idx]
     def __call__(self, x):
         for y in self.list: x = y(x)
         return x
 
 class Flatten(nn.Module):
-    def forward(self, input): return input.view(input.size(0), -1)
+    def forward(self, input):
+        input = to_tiny(input)
+        output = input.view(input.size(0), -1)
+        return to_torch(output)
 
 class BasicBlockIR(nn.Module):
     def __init__(self, in_channel, depth, stride):
@@ -102,7 +106,10 @@ model.output_layer_tiny = to_tiny_seq(model.output_layer)
 statedict = torch.load("adaface_ir50_ms1mv2.ckpt",  map_location="cpu", weights_only=False)['state_dict']
 model_statedict = {key[6:]:val for key, val in statedict.items() if key.startswith('model.')}
 model.load_state_dict(model_statedict)
-model.eval()
+
+del model.output_layer_tiny[1]
+
+model.eval() # cos dropout
 
 
 img = cv2.imread('messi_aligned.jpg')
