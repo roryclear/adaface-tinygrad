@@ -6,6 +6,13 @@ from collections import namedtuple
 import torch
 import torch.nn as nn
 
+from tinygrad import Tensor as tinyTensor
+from torch import Tensor
+
+
+def to_tiny(x): return tinyTensor(x.detach().numpy())
+
+def to_torch(x): return Tensor(x.numpy())
 
 class Flatten(nn.Module):
     def forward(self, input): return input.view(input.size(0), -1)
@@ -40,7 +47,6 @@ class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])): pass #
 def get_block(in_channel, depth, num_units, stride=2):
     return [Bottleneck(in_channel, depth, stride)] +\
            [Bottleneck(depth, depth, 1) for i in range(num_units - 1)]
-
 
 def get_blocks(num_layers):
     blocks = [
@@ -79,12 +85,14 @@ class Backbone(nn.Module):
 
     def forward(self, x):
         x = self.input_layer(x)
-        for module in self.body:
-            x = module(x)
+        for module in self.body: x = module(x)
 
         x = self.output_layer(x)
-        norm = torch.norm(x, 2, 1, True)
-        output = torch.div(x, norm)
+        x = to_tiny(x)
+        norm = tinyTensor.sqrt(tinyTensor.sum(x * x, keepdim=True))
+        output = x / norm
+        output = to_torch(output)
+        norm = to_torch(norm)
         return output, norm
 
 def to_input(pil_rgb_image):
