@@ -14,6 +14,22 @@ def to_tiny(x): return tinyTensor(x.detach().numpy())
 
 def to_torch(x): return Tensor(x.numpy())
 
+def to_tiny_seq(x):
+    ret = tiny_Seq(size=len(x))
+    for i in range(len(x)): ret[i] = x[i]
+    return ret
+
+class tiny_Seq():
+    def __init__(self, size=0):
+        super().__init__()
+        self.list = [None] * size
+    def __len__(self): return len(self.list)
+    def __setitem__(self, key, value): self.list[key] = value
+    def __getitem__(self, idx): return self.list[idx]
+    def __call__(self, x):
+        for y in self.list: x = y(x)
+        return x
+
 class Flatten(nn.Module):
     def forward(self, input): return input.view(input.size(0), -1)
 
@@ -37,9 +53,7 @@ class BasicBlockIR(nn.Module):
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
         res = self.res_layer(x)
-
         return res + shortcut
-
 
 
 class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])): pass # todo ???
@@ -64,7 +78,6 @@ class Backbone(nn.Module):
         self.input_layer = nn.Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
                                       nn.BatchNorm2d(64), nn.PReLU(64))
         blocks = get_blocks(num_layers)
-        unit_module = BasicBlockIR
         output_channel = 512
 
 
@@ -78,7 +91,7 @@ class Backbone(nn.Module):
         for block in blocks:
             for bottleneck in block:
                 modules.append(
-                    unit_module(bottleneck.in_channel, bottleneck.depth,
+                    BasicBlockIR(bottleneck.in_channel, bottleneck.depth,
                                 bottleneck.stride))
         self.body = nn.Sequential(*modules)
 
@@ -94,6 +107,7 @@ class Backbone(nn.Module):
         output = to_torch(output)
         norm = to_torch(norm)
         return output, norm
+
 
 def to_input(pil_rgb_image):
     np_img = np.array(pil_rgb_image)
