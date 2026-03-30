@@ -5,34 +5,27 @@ import torch
 from collections import namedtuple
 import torch
 import torch.nn as nn
-from torch.nn import Dropout
-from torch.nn import MaxPool2d
-from torch.nn import Sequential
-from torch.nn import Conv2d, Linear
-from torch.nn import BatchNorm1d, BatchNorm2d
-from torch.nn import Module
-from torch.nn import PReLU
 
 
-class Flatten(Module):
+class Flatten(nn.Module):
     def forward(self, input): return input.view(input.size(0), -1)
 
-class BasicBlockIR(Module):
+class BasicBlockIR(nn.Module):
     def __init__(self, in_channel, depth, stride):
         super(BasicBlockIR, self).__init__()
         if in_channel == depth:
-            self.shortcut_layer = MaxPool2d(1, stride)
+            self.shortcut_layer = nn.MaxPool2d(1, stride)
         else:
-            self.shortcut_layer = Sequential(
-                Conv2d(in_channel, depth, (1, 1), stride, bias=False),
-                BatchNorm2d(depth))
-        self.res_layer = Sequential(
-            BatchNorm2d(in_channel),
-            Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-            BatchNorm2d(depth),
-            PReLU(depth),
-            Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-            BatchNorm2d(depth))
+            self.shortcut_layer = nn.Sequential(
+                nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
+                nn.BatchNorm2d(depth))
+        self.res_layer = nn.Sequential(
+            nn.BatchNorm2d(in_channel),
+            nn.Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
+            nn.BatchNorm2d(depth),
+            nn.PReLU(depth),
+            nn.Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
+            nn.BatchNorm2d(depth))
 
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
@@ -59,20 +52,20 @@ def get_blocks(num_layers):
     return blocks
 
 
-class Backbone(Module):
+class Backbone(nn.Module):
     def __init__(self, input_size, num_layers):
         super(Backbone, self).__init__()
-        self.input_layer = Sequential(Conv2d(3, 64, (3, 3), 1, 1, bias=False),
-                                      BatchNorm2d(64), PReLU(64))
+        self.input_layer = nn.Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
+                                      nn.BatchNorm2d(64), nn.PReLU(64))
         blocks = get_blocks(num_layers)
         unit_module = BasicBlockIR
         output_channel = 512
 
 
-        self.output_layer = Sequential(BatchNorm2d(output_channel),
-                                    Dropout(0.4), Flatten(),
-                                    Linear(output_channel * 7 * 7, 512),
-                                    BatchNorm1d(512, affine=False))
+        self.output_layer = nn.Sequential(nn.BatchNorm2d(output_channel),
+                                    nn.Dropout(0.4), Flatten(),
+                                    nn.Linear(output_channel * 7 * 7, 512),
+                                    nn.BatchNorm1d(512, affine=False))
 
 
         modules = []
@@ -81,7 +74,7 @@ class Backbone(Module):
                 modules.append(
                     unit_module(bottleneck.in_channel, bottleneck.depth,
                                 bottleneck.stride))
-        self.body = Sequential(*modules)
+        self.body = nn.Sequential(*modules)
 
 
     def forward(self, x):
