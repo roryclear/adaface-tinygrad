@@ -1,15 +1,10 @@
 import cv2
 import numpy as np
 from tinygrad import Tensor
-from tinygrad.nn.state import safe_save, safe_load, get_state_dict, load_state_dict
 from adaface import ADAFACE
 
 
 model = ADAFACE()
-
-state_dict = safe_load("model.safetensors")
-
-load_state_dict(model, state_dict)
 
 img = cv2.imread('messi_aligned.jpg')
 

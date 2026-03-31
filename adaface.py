@@ -1,4 +1,6 @@
 from tinygrad import Tensor, nn
+from tinygrad.nn.state import safe_save, safe_load, get_state_dict, load_state_dict
+from tinygrad.helpers import fetch
 class MaxPool2d:
     def __init__(self, kernel_size=2, stride=None, padding=0):
         self.kernel_size = kernel_size
@@ -71,6 +73,8 @@ class ADAFACE():
 
         self.body = Seq(size=24)
         for i in range(len(self.body)): self.body[i] = BasicBlockIR_tiny(sizes[i][0], sizes[i][1], sizes[i][2])
+        state_dict = safe_load(fetch("https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors"))
+        load_state_dict(self, state_dict)
 
 
     def __call__(self, x):
