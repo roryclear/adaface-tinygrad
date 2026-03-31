@@ -31,33 +31,33 @@ class BasicBlockIR_tiny():
         self.depth = depth
         self.stride = stride
 
-        self.res_layer_tiny0 = nn.BatchNorm2d(self.in_channel)
-        self.conv_layer_tiny0 = nn.Conv2d(self.in_channel, self.depth, (3, 3), (1, 1), 1, bias=False)
-        self.res_layer_tiny1 = nn.BatchNorm2d(self.depth)
+        self.res_layer0 = nn.BatchNorm2d(self.in_channel)
+        self.conv_layer0 = nn.Conv2d(self.in_channel, self.depth, (3, 3), (1, 1), 1, bias=False)
+        self.res_layer1 = nn.BatchNorm2d(self.depth)
         self.prelu_weight = Tensor.empty(self.depth)
-        self.conv_layer_tiny1 = nn.Conv2d(self.depth, self.depth, (3, 3), self.stride, 1, bias=False)
-        self.res_layer_tiny2 = nn.BatchNorm2d(self.depth)
+        self.conv_layer1 = nn.Conv2d(self.depth, self.depth, (3, 3), self.stride, 1, bias=False)
+        self.res_layer2 = nn.BatchNorm2d(self.depth)
 
         if self.depth == self.in_channel:
-            self.shortcut_layer_tiny = MaxPool2d(1, self.stride)
+            self.shortcut_layer = MaxPool2d(1, self.stride)
         else:
-            self.shortcut_layer_tiny0 = nn.Conv2d(self.in_channel, self.depth, (1, 1), self.stride, bias=False)
-            self.shortcut_layer_tiny1 = nn.BatchNorm2d(self.depth)
+            self.shortcut_layer0 = nn.Conv2d(self.in_channel, self.depth, (1, 1), self.stride, bias=False)
+            self.shortcut_layer1 = nn.BatchNorm2d(self.depth)
 
 
 
     def __call__(self, x):
         if self.depth == self.in_channel:
-            shortcut = self.shortcut_layer_tiny(x)
+            shortcut = self.shortcut_layer(x)
         else:
-            shortcut = self.shortcut_layer_tiny0(x)
-            shortcut = self.shortcut_layer_tiny1(shortcut)
-        x = self.res_layer_tiny0(x)
-        x = self.conv_layer_tiny0(x)
-        x = self.res_layer_tiny1(x)
+            shortcut = self.shortcut_layer0(x)
+            shortcut = self.shortcut_layer1(shortcut)
+        x = self.res_layer0(x)
+        x = self.conv_layer0(x)
+        x = self.res_layer1(x)
         x = Tensor.where(x > 0, x, self.prelu_weight.view(1, -1, 1, 1) * x)
-        x = self.conv_layer_tiny1(x)
-        x = self.res_layer_tiny2(x)
+        x = self.conv_layer1(x)
+        x = self.res_layer2(x)
         return x + shortcut
 
 
@@ -67,31 +67,31 @@ sizes = [[64, 64, 2], [64, 64, 1], [64, 64, 1], [64, 128, 2], [128, 128, 1], [12
 class Backbone():
     def __init__(self):
 
-        self.linear_tiny = nn.Linear(512 * 7 * 7, 512)
-        self.bn_tiny = nn.BatchNorm2d(512)
+        self.linear = nn.Linear(512 * 7 * 7, 512)
+        self.bn = nn.BatchNorm2d(512)
 
-        self.bn_tiny2 = nn.BatchNorm(512, affine=False)
+        self.bn2 = nn.BatchNorm(512, affine=False)
         self.prelu_weight = Tensor.empty(64)
-        self.conv_tiny0 = nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False)
-        self.bn_tiny0 = nn.BatchNorm2d(64)
+        self.conv0 = nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False)
+        self.bn0 = nn.BatchNorm2d(64)
 
-        self.body_tiny = Seq(size=24)
-        for i in range(len(self.body_tiny)): self.body_tiny[i] = BasicBlockIR_tiny(sizes[i][0], sizes[i][1], sizes[i][2])
+        self.body = Seq(size=24)
+        for i in range(len(self.body)): self.body[i] = BasicBlockIR_tiny(sizes[i][0], sizes[i][1], sizes[i][2])
 
 
     def __call__(self, x):
         x = ((x[:,:,::-1] / 255.) - 0.5) / 0.5
         x = x.permute(2,0,1).unsqueeze(0)
 
-        x = self.conv_tiny0(x)
-        x = self.bn_tiny0(x)
+        x = self.conv0(x)
+        x = self.bn0(x)
         x = Tensor.where(x > 0, x, self.prelu_weight.view(1, -1, 1, 1) * x)
 
-        for module in self.body_tiny: x = module(x)
-        x = self.bn_tiny(x)
+        for module in self.body: x = module(x)
+        x = self.bn(x)
         x = x.view(x.size(0), -1)
-        x = self.linear_tiny(x)
-        x = self.bn_tiny2(x)
+        x = self.linear(x)
+        x = self.bn2(x)
         norm = Tensor.sqrt(Tensor.sum(x * x, keepdim=True))
         output = x / norm
         return output, norm
@@ -99,10 +99,8 @@ class Backbone():
 
 model = Backbone()
 
-state_dict = get_state_dict(model)
-
-
 state_dict = safe_load("model.safetensors")
+
 load_state_dict(model, state_dict)
 
 img = cv2.imread('messi_aligned.jpg')
