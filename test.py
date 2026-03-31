@@ -8,6 +8,7 @@ import torch.nn as nn
 
 from tinygrad import Tensor as tinyTensor, nn as tiny_nn
 from torch import Tensor
+from tinygrad.nn.state import safe_save, safe_load, get_state_dict, load_state_dict
 
 
 def to_tiny(x): return tinyTensor(x.detach().numpy())
@@ -208,9 +209,16 @@ for i in range(len(model.body_tiny)):
         model.body_tiny[i].shortcut_layer_tiny1.running_mean = to_tiny(model.body_tiny[i].shortcut_layer[1].running_mean)
         model.body_tiny[i].shortcut_layer_tiny1.running_var = to_tiny(model.body_tiny[i].shortcut_layer[1].running_var)
 
-#nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
 
-model.eval() # cos dropout
+state_dict = get_state_dict(model)
+
+for k in state_dict.keys():
+    print(k, type(state_dict[k]))
+
+
+safe_save(state_dict, "model.safetensors")
+state_dict = safe_load("model.safetensors")
+load_state_dict(model, state_dict)
 
 
 img = cv2.imread('messi_aligned.jpg')
