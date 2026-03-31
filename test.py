@@ -40,28 +40,6 @@ class tiny_Seq():
         for y in self.list: x = y(x)
         return x
 
-
-
-class BasicBlockIR(nn.Module):
-    def __init__(self, in_channel, depth, stride):
-        super(BasicBlockIR, self).__init__()
-        self.in_channel = in_channel
-        self.depth = depth
-        self.stride = stride
-        if in_channel == depth:
-            self.shortcut_layer = nn.MaxPool2d(1, stride)
-        else:
-            self.shortcut_layer = nn.Sequential(
-                nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
-                nn.BatchNorm2d(depth))
-        self.res_layer = nn.Sequential(
-            nn.BatchNorm2d(in_channel),
-            nn.Conv2d(in_channel, depth, (3, 3), (1, 1), 1, bias=False),
-            nn.BatchNorm2d(depth),
-            nn.PReLU(depth),
-            nn.Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-            nn.BatchNorm2d(depth))    
-
 class BasicBlockIR_tiny():
     def __init__(self, in_channel, depth, stride):
         self.in_channel = in_channel
@@ -106,9 +84,18 @@ sizes = [[64, 64, 2], [64, 64, 1], [64, 64, 1], [64, 128, 2], [128, 128, 1], [12
 
 class Backbone_tiny():
     def __init__(self, input_size, num_layers):
-        modules = []
-        for size in sizes: modules.append(BasicBlockIR(size[0], size[1], size[2]))
-        self.body = nn.Sequential(*modules)
+
+        self.linear_tiny = tiny_nn.Linear(512 * 7 * 7, 512)
+        self.bn_tiny = tiny_nn.BatchNorm2d(512)
+
+        self.bn_tiny2 = tiny_nn.BatchNorm(512, affine=False)
+        self.prelu_weight = tinyTensor.empty(64)
+        self.conv_tiny0 = tiny_nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False)
+        self.bn_tiny0 = tiny_nn.BatchNorm2d(64)
+
+        self.body_tiny = tiny_Seq(size=24)
+        for i in range(len(self.body_tiny)): self.body_tiny[i] = BasicBlockIR_tiny(sizes[i][0], sizes[i][1], sizes[i][2])
+
 
     def __call__(self, x):
         x = to_tiny(x)
@@ -137,19 +124,6 @@ def to_input(pil_rgb_image):
     return tensor
 
 model = Backbone_tiny(112, 50)
-
-
-model.linear_tiny = tiny_nn.Linear(512 * 7 * 7, 512)
-model.bn_tiny = tiny_nn.BatchNorm2d(512)
-
-model.bn_tiny2 = tiny_nn.BatchNorm(512, affine=False)
-model.prelu_weight = tinyTensor.empty(64)
-model.conv_tiny0 = tiny_nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False)
-model.bn_tiny0 = tiny_nn.BatchNorm2d(64)
-
-model.body_tiny = to_tiny_seq(model.body)
-for i in range(len(model.body_tiny)):
-    model.body_tiny[i] = BasicBlockIR_tiny(in_channel=model.body_tiny[i].in_channel, depth=model.body_tiny[i].depth, stride=model.body_tiny[i].stride)
 
 state_dict = get_state_dict(model)
 
