@@ -111,15 +111,6 @@ sizes = [[64, 64, 2], [64, 64, 1], [64, 64, 1], [64, 128, 2], [128, 128, 1], [12
 class Backbone(nn.Module):
     def __init__(self, input_size, num_layers):
         super(Backbone, self).__init__()
-        self.input_layer = nn.Sequential(nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False),
-                                      nn.BatchNorm2d(64), nn.PReLU(64))
-        output_channel = 512
-
-        self.output_layer = nn.Sequential(nn.BatchNorm2d(output_channel),
-                                    nn.Dropout(0.4), Flatten(),
-                                    nn.Linear(output_channel * 7 * 7, 512),
-                                    nn.BatchNorm1d(512, affine=False))
-
         modules = []
         for size in sizes: modules.append(BasicBlockIR(size[0], size[1], size[2]))
         self.body = nn.Sequential(*modules)
@@ -154,25 +145,19 @@ def to_input(pil_rgb_image):
 
 model = Backbone(112, 50)
 
-model.output_layer_tiny = to_tiny_seq(model.output_layer)
-
-statedict = torch.load("adaface_ir50_ms1mv2.ckpt",  map_location="cpu", weights_only=False)['state_dict']
-model_statedict = {key[6:]:val for key, val in statedict.items() if key.startswith('model.')}
-model.load_state_dict(model_statedict)
 
 model.linear_tiny = tiny_nn.Linear(512 * 7 * 7, 512)
 model.bn_tiny = tiny_nn.BatchNorm2d(512)
-
 
 model.bn_tiny2 = tiny_nn.BatchNorm(512, affine=False)
 model.prelu_weight = tinyTensor.empty(64)
 model.conv_tiny0 = tiny_nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False)
 model.bn_tiny0 = tiny_nn.BatchNorm2d(64)
 
+print(len(model.body))
 model.body_tiny = to_tiny_seq(model.body)
 for i in range(len(model.body_tiny)):
     model.body_tiny[i] = BasicBlockIR_tiny(in_channel=model.body_tiny[i].in_channel, depth=model.body_tiny[i].depth, stride=model.body_tiny[i].stride)
-
 
 state_dict = get_state_dict(model)
 
