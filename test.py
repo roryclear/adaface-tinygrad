@@ -64,9 +64,15 @@ class BasicBlockIR(nn.Module):
             nn.BatchNorm2d(depth),
             nn.PReLU(depth),
             nn.Conv2d(depth, depth, (3, 3), stride, 1, bias=False),
-            nn.BatchNorm2d(depth))
+            nn.BatchNorm2d(depth))    
 
-    def forward(self, x):
+class BasicBlockIR_tiny():
+    def __init__(self, in_channel, depth, stride):
+        self.in_channel = in_channel
+        self.depth = depth
+        self.stride = stride
+
+    def __call__(self, x):
         x = to_tiny(x)
         if self.depth == self.in_channel:
             shortcut = self.shortcut_layer_tiny(x)
@@ -139,7 +145,6 @@ statedict = torch.load("adaface_ir50_ms1mv2.ckpt",  map_location="cpu", weights_
 model_statedict = {key[6:]:val for key, val in statedict.items() if key.startswith('model.')}
 model.load_state_dict(model_statedict)
 
-del model.output_layer_tiny[1]
 model.linear_tiny = tiny_nn.Linear(512 * 7 * 7, 512)
 model.bn_tiny = tiny_nn.BatchNorm2d(512)
 
@@ -151,6 +156,7 @@ model.bn_tiny0 = tiny_nn.BatchNorm2d(64)
 
 model.body_tiny = to_tiny_seq(model.body)
 for i in range(len(model.body_tiny)):
+    model.body_tiny[i] = BasicBlockIR_tiny(in_channel=model.body_tiny[i].in_channel, depth=model.body_tiny[i].depth, stride=model.body_tiny[i].stride)
     model.body_tiny[i].res_layer_tiny0 = tiny_nn.BatchNorm2d(model.body_tiny[i].in_channel)
     model.body_tiny[i].conv_layer_tiny0 = tiny_nn.Conv2d(model.body_tiny[i].in_channel, model.body_tiny[i].depth, (3, 3), (1, 1), 1, bias=False)
     model.body_tiny[i].res_layer_tiny1 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
