@@ -66,16 +66,13 @@ class BasicBlockIR(nn.Module):
             nn.BatchNorm2d(depth))
 
     def forward(self, x):
-        if self.depth == self.in_channel:
-            x = to_tiny(x)
-            shortcut = self.shortcut_layer_tiny(x)
-            shortcut = to_torch(shortcut)
-        else:
-            x = to_tiny(x)
-            shortcut = self.shortcut_layer_tiny0(x)
-            shortcut = to_torch(shortcut)
-            shortcut = self.shortcut_layer[1](shortcut)
         x = to_tiny(x)
+        if self.depth == self.in_channel:
+            shortcut = self.shortcut_layer_tiny(x)
+        else:
+            shortcut = self.shortcut_layer_tiny0(x)
+            shortcut = self.shortcut_layer_tiny1(shortcut)
+        shortcut = to_torch(shortcut)
         x = self.res_layer_tiny0(x)
         x = self.conv_layer_tiny0(x)
         x = self.res_layer_tiny1(x)
@@ -204,6 +201,12 @@ for i in range(len(model.body_tiny)):
     else:
         model.body_tiny[i].shortcut_layer_tiny0 = tiny_nn.Conv2d(model.body_tiny[i].in_channel, model.body_tiny[i].depth, (1, 1), model.body_tiny[i].stride, bias=False)
         model.body_tiny[i].shortcut_layer_tiny0.weight = to_tiny(model.body_tiny[i].shortcut_layer[0].weight)
+        model.body_tiny[i].shortcut_layer_tiny1 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
+
+        model.body_tiny[i].shortcut_layer_tiny1.weight = to_tiny(model.body_tiny[i].shortcut_layer[1].weight)
+        model.body_tiny[i].shortcut_layer_tiny1.bias = to_tiny(model.body_tiny[i].shortcut_layer[1].bias)
+        model.body_tiny[i].shortcut_layer_tiny1.running_mean = to_tiny(model.body_tiny[i].shortcut_layer[1].running_mean)
+        model.body_tiny[i].shortcut_layer_tiny1.running_var = to_tiny(model.body_tiny[i].shortcut_layer[1].running_var)
 
 #nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
 
