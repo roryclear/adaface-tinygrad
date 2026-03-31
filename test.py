@@ -19,6 +19,14 @@ def to_tiny_seq(x):
     for i in range(len(x)): ret[i] = x[i]
     return ret
 
+class MaxPool2d:
+    def __init__(self, kernel_size=2, stride=None, padding=0):
+        self.kernel_size = kernel_size
+        self.stride = stride if stride is not None else kernel_size
+        self.padding = padding
+
+    def __call__(self, x): return x.pad((self.padding, self.padding, self.padding, self.padding)).max_pool2d(kernel_size=self.kernel_size, stride=self.stride)
+
 class tiny_Seq():
     def __init__(self, size=0):
         super().__init__()
@@ -58,7 +66,13 @@ class BasicBlockIR(nn.Module):
             nn.BatchNorm2d(depth))
 
     def forward(self, x):
-        shortcut = self.shortcut_layer(x)
+        if self.depth == self.in_channel:
+            x = to_tiny(x)
+            shortcut = self.shortcut_layer_tiny(x)
+            shortcut = to_torch(shortcut)
+            x = to_torch(x)
+        else:
+            shortcut = self.shortcut_layer(x)
         x = to_tiny(x)
         x = self.res_layer_tiny0(x)
         x = self.conv_layer_tiny0(x)
@@ -182,6 +196,9 @@ for i in range(len(model.body_tiny)):
     model.body_tiny[i].res_layer_tiny2.bias = to_tiny(model.body_tiny[i].res_layer[5].bias)
     model.body_tiny[i].res_layer_tiny2.running_mean = to_tiny(model.body_tiny[i].res_layer[5].running_mean)
     model.body_tiny[i].res_layer_tiny2.running_var = to_tiny(model.body_tiny[i].res_layer[5].running_var)
+
+    if model.body_tiny[i].depth == model.body_tiny[i].in_channel:
+        model.body_tiny[i].shortcut_layer_tiny = MaxPool2d(1, model.body_tiny[i].stride)
 
 model.eval() # cos dropout
 
