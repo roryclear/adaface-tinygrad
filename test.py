@@ -141,85 +141,39 @@ model.load_state_dict(model_statedict)
 
 del model.output_layer_tiny[1]
 model.linear_tiny = tiny_nn.Linear(512 * 7 * 7, 512)
-model.linear_tiny.weight = to_tiny(model.output_layer[3].weight)
-model.linear_tiny.bias = to_tiny(model.output_layer[3].bias)
 model.bn_tiny = tiny_nn.BatchNorm2d(512)
-model.bn_tiny.weight = to_tiny(model.output_layer[0].weight)
-model.bn_tiny.bias = to_tiny(model.output_layer[0].bias)
-model.bn_tiny.running_mean = to_tiny(model.output_layer[0].running_mean)
-model.bn_tiny.running_var = to_tiny(model.output_layer[0].running_var)
 
 
 model.bn_tiny2 = tiny_nn.BatchNorm(512, affine=False)
-model.bn_tiny2.running_mean = to_tiny(model.output_layer[4].running_mean)
-model.bn_tiny2.running_var = to_tiny(model.output_layer[4].running_var)
-#model.bn_tiny2.weight = to_tiny(model.output_layer[4].weight)
-#model.bn_tiny2.bias = to_tiny(model.output_layer[4].bias)
-
-model.prelu_weight = to_tiny(model.input_layer[2].weight)
-
-
+model.prelu_weight = tinyTensor.empty(64)
 model.conv_tiny0 = tiny_nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False)
-model.conv_tiny0.weight = to_tiny(model.input_layer[0].weight)
-
 model.bn_tiny0 = tiny_nn.BatchNorm2d(64)
-model.bn_tiny0.weight = to_tiny(model.input_layer[1].weight)
-model.bn_tiny0.bias = to_tiny(model.input_layer[1].bias)
-model.bn_tiny0.running_mean = to_tiny(model.input_layer[1].running_mean)
-model.bn_tiny0.running_var = to_tiny(model.input_layer[1].running_var)
 
 model.body_tiny = to_tiny_seq(model.body)
 for i in range(len(model.body_tiny)):
     model.body_tiny[i].res_layer_tiny0 = tiny_nn.BatchNorm2d(model.body_tiny[i].in_channel)
-    model.body_tiny[i].res_layer_tiny0.weight = to_tiny(model.body_tiny[i].res_layer[0].weight)
-    model.body_tiny[i].res_layer_tiny0.bias = to_tiny(model.body_tiny[i].res_layer[0].bias)
-    model.body_tiny[i].res_layer_tiny0.running_mean = to_tiny(model.body_tiny[i].res_layer[0].running_mean)
-    model.body_tiny[i].res_layer_tiny0.running_var = to_tiny(model.body_tiny[i].res_layer[0].running_var)
-
-
     model.body_tiny[i].conv_layer_tiny0 = tiny_nn.Conv2d(model.body_tiny[i].in_channel, model.body_tiny[i].depth, (3, 3), (1, 1), 1, bias=False)
-    model.body_tiny[i].conv_layer_tiny0.weight = to_tiny(model.body_tiny[i].res_layer[1].weight)
-
     model.body_tiny[i].res_layer_tiny1 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
-    model.body_tiny[i].res_layer_tiny1.weight = to_tiny(model.body_tiny[i].res_layer[2].weight)
-    model.body_tiny[i].res_layer_tiny1.bias = to_tiny(model.body_tiny[i].res_layer[2].bias)
-    model.body_tiny[i].res_layer_tiny1.running_mean = to_tiny(model.body_tiny[i].res_layer[2].running_mean)
-    model.body_tiny[i].res_layer_tiny1.running_var = to_tiny(model.body_tiny[i].res_layer[2].running_var)
-
-    model.body_tiny[i].prelu_weight = to_tiny(model.body_tiny[i].res_layer[3].weight)
-
+    model.body_tiny[i].prelu_weight = tinyTensor.empty(model.body_tiny[i].depth)
     model.body_tiny[i].conv_layer_tiny1 = tiny_nn.Conv2d(model.body_tiny[i].depth, model.body_tiny[i].depth, (3, 3), model.body_tiny[i].stride, 1, bias=False)
-    model.body_tiny[i].conv_layer_tiny1.weight = to_tiny(model.body_tiny[i].res_layer[4].weight)
-
     model.body_tiny[i].res_layer_tiny2 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
-    model.body_tiny[i].res_layer_tiny2.weight = to_tiny(model.body_tiny[i].res_layer[5].weight)
-    model.body_tiny[i].res_layer_tiny2.bias = to_tiny(model.body_tiny[i].res_layer[5].bias)
-    model.body_tiny[i].res_layer_tiny2.running_mean = to_tiny(model.body_tiny[i].res_layer[5].running_mean)
-    model.body_tiny[i].res_layer_tiny2.running_var = to_tiny(model.body_tiny[i].res_layer[5].running_var)
 
     if model.body_tiny[i].depth == model.body_tiny[i].in_channel:
         model.body_tiny[i].shortcut_layer_tiny = MaxPool2d(1, model.body_tiny[i].stride)
     else:
         model.body_tiny[i].shortcut_layer_tiny0 = tiny_nn.Conv2d(model.body_tiny[i].in_channel, model.body_tiny[i].depth, (1, 1), model.body_tiny[i].stride, bias=False)
-        model.body_tiny[i].shortcut_layer_tiny0.weight = to_tiny(model.body_tiny[i].shortcut_layer[0].weight)
         model.body_tiny[i].shortcut_layer_tiny1 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
 
-        model.body_tiny[i].shortcut_layer_tiny1.weight = to_tiny(model.body_tiny[i].shortcut_layer[1].weight)
-        model.body_tiny[i].shortcut_layer_tiny1.bias = to_tiny(model.body_tiny[i].shortcut_layer[1].bias)
-        model.body_tiny[i].shortcut_layer_tiny1.running_mean = to_tiny(model.body_tiny[i].shortcut_layer[1].running_mean)
-        model.body_tiny[i].shortcut_layer_tiny1.running_var = to_tiny(model.body_tiny[i].shortcut_layer[1].running_var)
 
 
 state_dict = get_state_dict(model)
 
-for k in state_dict.keys():
-    print(k, type(state_dict[k]))
+#for k in state_dict.keys():
+#    print(k, type(state_dict[k]))
 
 
-safe_save(state_dict, "model.safetensors")
 state_dict = safe_load("model.safetensors")
 load_state_dict(model, state_dict)
-
 
 img = cv2.imread('messi_aligned.jpg')
 bgr_input = to_input(img)
