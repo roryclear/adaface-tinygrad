@@ -81,7 +81,9 @@ class Backbone(nn.Module):
 
 
     def forward(self, x):
-        x = self.input_layer[0](x)
+        x = to_tiny(x)
+        x = self.conv_tiny0(x)
+        x = to_torch(x)
         x = self.input_layer[1](x)
         x = to_tiny(x)
         x = tinyTensor.where(x > 0, x, self.prelu_weight.view(1, -1, 1, 1) * x)
@@ -132,6 +134,10 @@ model.bn_tiny2.running_var = to_tiny(model.output_layer[4].running_var)
 #model.bn_tiny2.bias = to_tiny(model.output_layer[4].bias)
 
 model.prelu_weight = to_tiny(model.input_layer[2].weight)
+
+
+model.conv_tiny0 = tiny_nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False)
+model.conv_tiny0.weight = to_tiny(model.input_layer[0].weight)
 
 model.eval() # cos dropout
 
