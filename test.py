@@ -40,6 +40,9 @@ class Flatten(nn.Module):
 class BasicBlockIR(nn.Module):
     def __init__(self, in_channel, depth, stride):
         super(BasicBlockIR, self).__init__()
+        self.in_channel = in_channel
+        self.depth = depth
+        self.stride = stride
         if in_channel == depth:
             self.shortcut_layer = nn.MaxPool2d(1, stride)
         else:
@@ -56,8 +59,15 @@ class BasicBlockIR(nn.Module):
 
     def forward(self, x):
         shortcut = self.shortcut_layer(x)
-        res = self.res_layer(x)
-        return res + shortcut
+        x = to_tiny(x)
+        x = self.res_layer_tiny0(x)
+        x = self.conv_layer_tiny0(x)
+        x = self.res_layer_tiny1(x)
+        x = tinyTensor.where(x > 0, x, self.prelu_weight.view(1, -1, 1, 1) * x)
+        x = self.conv_layer_tiny1(x)
+        x = self.res_layer_tiny2(x)
+        x = to_torch(x)
+        return x + shortcut
 
 
 
@@ -86,7 +96,8 @@ class Backbone(nn.Module):
         x = self.bn_tiny0(x)
         x = tinyTensor.where(x > 0, x, self.prelu_weight.view(1, -1, 1, 1) * x)
         x = to_torch(x)
-        for module in self.body: x = module(x)
+
+        for module in self.body_tiny: x = module(x)
 
         x = to_tiny(x)
         x = self.bn_tiny(x)
@@ -142,6 +153,35 @@ model.bn_tiny0.weight = to_tiny(model.input_layer[1].weight)
 model.bn_tiny0.bias = to_tiny(model.input_layer[1].bias)
 model.bn_tiny0.running_mean = to_tiny(model.input_layer[1].running_mean)
 model.bn_tiny0.running_var = to_tiny(model.input_layer[1].running_var)
+
+model.body_tiny = to_tiny_seq(model.body)
+for i in range(len(model.body_tiny)):
+    model.body_tiny[i].res_layer_tiny0 = tiny_nn.BatchNorm2d(model.body_tiny[i].in_channel)
+    model.body_tiny[i].res_layer_tiny0.weight = to_tiny(model.body_tiny[i].res_layer[0].weight)
+    model.body_tiny[i].res_layer_tiny0.bias = to_tiny(model.body_tiny[i].res_layer[0].bias)
+    model.body_tiny[i].res_layer_tiny0.running_mean = to_tiny(model.body_tiny[i].res_layer[0].running_mean)
+    model.body_tiny[i].res_layer_tiny0.running_var = to_tiny(model.body_tiny[i].res_layer[0].running_var)
+
+
+    model.body_tiny[i].conv_layer_tiny0 = tiny_nn.Conv2d(model.body_tiny[i].in_channel, model.body_tiny[i].depth, (3, 3), (1, 1), 1, bias=False)
+    model.body_tiny[i].conv_layer_tiny0.weight = to_tiny(model.body_tiny[i].res_layer[1].weight)
+
+    model.body_tiny[i].res_layer_tiny1 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
+    model.body_tiny[i].res_layer_tiny1.weight = to_tiny(model.body_tiny[i].res_layer[2].weight)
+    model.body_tiny[i].res_layer_tiny1.bias = to_tiny(model.body_tiny[i].res_layer[2].bias)
+    model.body_tiny[i].res_layer_tiny1.running_mean = to_tiny(model.body_tiny[i].res_layer[2].running_mean)
+    model.body_tiny[i].res_layer_tiny1.running_var = to_tiny(model.body_tiny[i].res_layer[2].running_var)
+
+    model.body_tiny[i].prelu_weight = to_tiny(model.body_tiny[i].res_layer[3].weight)
+
+    model.body_tiny[i].conv_layer_tiny1 = tiny_nn.Conv2d(model.body_tiny[i].depth, model.body_tiny[i].depth, (3, 3), model.body_tiny[i].stride, 1, bias=False)
+    model.body_tiny[i].conv_layer_tiny1.weight = to_tiny(model.body_tiny[i].res_layer[4].weight)
+
+    model.body_tiny[i].res_layer_tiny2 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
+    model.body_tiny[i].res_layer_tiny2.weight = to_tiny(model.body_tiny[i].res_layer[5].weight)
+    model.body_tiny[i].res_layer_tiny2.bias = to_tiny(model.body_tiny[i].res_layer[5].bias)
+    model.body_tiny[i].res_layer_tiny2.running_mean = to_tiny(model.body_tiny[i].res_layer[5].running_mean)
+    model.body_tiny[i].res_layer_tiny2.running_var = to_tiny(model.body_tiny[i].res_layer[5].running_var)
 
 model.eval() # cos dropout
 
