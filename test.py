@@ -72,6 +72,21 @@ class BasicBlockIR_tiny():
         self.depth = depth
         self.stride = stride
 
+        self.res_layer_tiny0 = tiny_nn.BatchNorm2d(self.in_channel)
+        self.conv_layer_tiny0 = tiny_nn.Conv2d(self.in_channel, self.depth, (3, 3), (1, 1), 1, bias=False)
+        self.res_layer_tiny1 = tiny_nn.BatchNorm2d(self.depth)
+        self.prelu_weight = tinyTensor.empty(self.depth)
+        self.conv_layer_tiny1 = tiny_nn.Conv2d(self.depth, self.depth, (3, 3), self.stride, 1, bias=False)
+        self.res_layer_tiny2 = tiny_nn.BatchNorm2d(self.depth)
+
+        if self.depth == self.in_channel:
+            self.shortcut_layer_tiny = MaxPool2d(1, self.stride)
+        else:
+            self.shortcut_layer_tiny0 = tiny_nn.Conv2d(self.in_channel, self.depth, (1, 1), self.stride, bias=False)
+            self.shortcut_layer_tiny1 = tiny_nn.BatchNorm2d(self.depth)
+
+
+
     def __call__(self, x):
         x = to_tiny(x)
         if self.depth == self.in_channel:
@@ -157,19 +172,6 @@ model.bn_tiny0 = tiny_nn.BatchNorm2d(64)
 model.body_tiny = to_tiny_seq(model.body)
 for i in range(len(model.body_tiny)):
     model.body_tiny[i] = BasicBlockIR_tiny(in_channel=model.body_tiny[i].in_channel, depth=model.body_tiny[i].depth, stride=model.body_tiny[i].stride)
-    model.body_tiny[i].res_layer_tiny0 = tiny_nn.BatchNorm2d(model.body_tiny[i].in_channel)
-    model.body_tiny[i].conv_layer_tiny0 = tiny_nn.Conv2d(model.body_tiny[i].in_channel, model.body_tiny[i].depth, (3, 3), (1, 1), 1, bias=False)
-    model.body_tiny[i].res_layer_tiny1 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
-    model.body_tiny[i].prelu_weight = tinyTensor.empty(model.body_tiny[i].depth)
-    model.body_tiny[i].conv_layer_tiny1 = tiny_nn.Conv2d(model.body_tiny[i].depth, model.body_tiny[i].depth, (3, 3), model.body_tiny[i].stride, 1, bias=False)
-    model.body_tiny[i].res_layer_tiny2 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
-
-    if model.body_tiny[i].depth == model.body_tiny[i].in_channel:
-        model.body_tiny[i].shortcut_layer_tiny = MaxPool2d(1, model.body_tiny[i].stride)
-    else:
-        model.body_tiny[i].shortcut_layer_tiny0 = tiny_nn.Conv2d(model.body_tiny[i].in_channel, model.body_tiny[i].depth, (1, 1), model.body_tiny[i].stride, bias=False)
-        model.body_tiny[i].shortcut_layer_tiny1 = tiny_nn.BatchNorm2d(model.body_tiny[i].depth)
-
 
 
 state_dict = get_state_dict(model)
