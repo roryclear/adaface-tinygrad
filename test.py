@@ -104,15 +104,13 @@ class BasicBlockIR_tiny():
 
 sizes = [[64, 64, 2], [64, 64, 1], [64, 64, 1], [64, 128, 2], [128, 128, 1], [128, 128, 1], [128, 128, 1], [128, 256, 2], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 512, 2], [512, 512, 1], [512, 512, 1]]
 
-class Backbone(nn.Module):
+class Backbone_tiny():
     def __init__(self, input_size, num_layers):
-        super(Backbone, self).__init__()
         modules = []
         for size in sizes: modules.append(BasicBlockIR(size[0], size[1], size[2]))
         self.body = nn.Sequential(*modules)
 
-
-    def forward(self, x):
+    def __call__(self, x):
         x = to_tiny(x)
         x = self.conv_tiny0(x)
         x = self.bn_tiny0(x)
@@ -132,14 +130,13 @@ class Backbone(nn.Module):
         norm = to_torch(norm)
         return output, norm
 
-
 def to_input(pil_rgb_image):
     np_img = np.array(pil_rgb_image)
     brg_img = ((np_img[:,:,::-1] / 255.) - 0.5) / 0.5
     tensor = torch.tensor([brg_img.transpose(2,0,1)]).float()
     return tensor
 
-model = Backbone(112, 50)
+model = Backbone_tiny(112, 50)
 
 
 model.linear_tiny = tiny_nn.Linear(512 * 7 * 7, 512)
