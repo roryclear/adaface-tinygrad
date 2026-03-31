@@ -40,11 +40,7 @@ class tiny_Seq():
         for y in self.list: x = y(x)
         return x
 
-class Flatten(nn.Module):
-    def forward(self, input):
-        input = to_tiny(input)
-        output = input.view(input.size(0), -1)
-        return to_torch(output)
+
 
 class BasicBlockIR(nn.Module):
     def __init__(self, in_channel, depth, stride):
@@ -154,7 +150,6 @@ model.prelu_weight = tinyTensor.empty(64)
 model.conv_tiny0 = tiny_nn.Conv2d(3, 64, (3, 3), 1, 1, bias=False)
 model.bn_tiny0 = tiny_nn.BatchNorm2d(64)
 
-print(len(model.body))
 model.body_tiny = to_tiny_seq(model.body)
 for i in range(len(model.body_tiny)):
     model.body_tiny[i] = BasicBlockIR_tiny(in_channel=model.body_tiny[i].in_channel, depth=model.body_tiny[i].depth, stride=model.body_tiny[i].stride)
