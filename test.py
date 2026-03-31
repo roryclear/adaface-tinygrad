@@ -70,9 +70,11 @@ class BasicBlockIR(nn.Module):
             x = to_tiny(x)
             shortcut = self.shortcut_layer_tiny(x)
             shortcut = to_torch(shortcut)
-            x = to_torch(x)
         else:
-            shortcut = self.shortcut_layer(x)
+            x = to_tiny(x)
+            shortcut = self.shortcut_layer_tiny0(x)
+            shortcut = to_torch(shortcut)
+            shortcut = self.shortcut_layer[1](shortcut)
         x = to_tiny(x)
         x = self.res_layer_tiny0(x)
         x = self.conv_layer_tiny0(x)
@@ -199,6 +201,11 @@ for i in range(len(model.body_tiny)):
 
     if model.body_tiny[i].depth == model.body_tiny[i].in_channel:
         model.body_tiny[i].shortcut_layer_tiny = MaxPool2d(1, model.body_tiny[i].stride)
+    else:
+        model.body_tiny[i].shortcut_layer_tiny0 = tiny_nn.Conv2d(model.body_tiny[i].in_channel, model.body_tiny[i].depth, (1, 1), model.body_tiny[i].stride, bias=False)
+        model.body_tiny[i].shortcut_layer_tiny0.weight = to_tiny(model.body_tiny[i].shortcut_layer[0].weight)
+
+#nn.Conv2d(in_channel, depth, (1, 1), stride, bias=False),
 
 model.eval() # cos dropout
 
