@@ -79,7 +79,7 @@ class ADAFACE():
         state_dict = safe_load(fetch("https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors"))
         load_state_dict(self, state_dict)
 
-    def __call__(self, x, emb=None):
+    def __call__(self, x):
         x = ((x[:,:,::-1] / 255.) - 0.5) / 0.5
         x = x.permute(2,0,1).unsqueeze(0)
 
@@ -94,5 +94,4 @@ class ADAFACE():
         x = self.bn2(x)
         norm = Tensor.sqrt(Tensor.sum(x * x, keepdim=True))
         output = (x / norm)[0]
-        if emb is not None: return output @ emb.unsqueeze(0).T
         return output 

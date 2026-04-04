@@ -220,7 +220,7 @@ from adaface import ADAFACE
 if __name__ == "__main__":
     Device.DEFAULT = "WEBGPU"
     rfdetr_infer = ADAFACE()
-    prg, inp_sizes, out_sizes, state = export_model(rfdetr_infer, Device.DEFAULT.lower(), Tensor.randn(112,112,3).cast(dtype=dtypes.uchar), Tensor.randn(512), model_name="RFDETR")
+    prg, inp_sizes, out_sizes, state = export_model(rfdetr_infer, Device.DEFAULT.lower(), Tensor.randn(112,112,3).cast(dtype=dtypes.uchar), model_name="RFDETR")
     dirname = Path(__file__).parent
     safe_save(state, (dirname / "net.safetensors").as_posix())
     with open(dirname / f"net.js", "w") as text_file:
