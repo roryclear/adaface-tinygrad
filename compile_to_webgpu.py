@@ -8,6 +8,7 @@ from tinygrad.nn.state import safe_load, load_state_dict, get_state_dict, safe_s
 from tinygrad.helpers import fetch, Context
 from tinygrad import TinyJit
 import os
+import pickle
 os.environ["BEAM_LOCAL_MAX"] = "256"
 
 def jit_model(model, *args) -> Tuple[TinyJit,Dict[int,str]]:
@@ -215,16 +216,11 @@ def export_model(model, target:str, *inputs, model_name: Optional[str] = "model"
   return prg, {input:bufs[input][0] for input in input_names}, {output:bufs[output][0] for output in output_names}, state
 
 
-class TEST:
-  def __call__(self, x):
-    return x.sum().cast(dtypes.float32)
-
 from adaface import ADAFACE
 if __name__ == "__main__":
     Device.DEFAULT = "WEBGPU"
     rfdetr_infer = ADAFACE()
-    test = TEST()
-    prg, inp_sizes, out_sizes, state = export_model(rfdetr_infer, Device.DEFAULT.lower(), Tensor.randn(112,112,3).cast(dtype=dtypes.uchar), model_name="RFDETR")
+    prg, inp_sizes, out_sizes, state = export_model(rfdetr_infer, Device.DEFAULT.lower(), Tensor.randn(112,112,3).cast(dtype=dtypes.uchar), Tensor.randn(512), model_name="RFDETR")
     dirname = Path(__file__).parent
     safe_save(state, (dirname / "net.safetensors").as_posix())
     with open(dirname / f"net.js", "w") as text_file:
