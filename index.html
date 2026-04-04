@@ -262,7 +262,6 @@ cropCanvas.addEventListener('touchend', endCrop);
 
 // --- EMBEDDING ---
 setEmbBtn.onclick = async () => {
-    setEmbBtn.textContent = "Loading...";
     setEmbBtn.disabled = true;
 
     const realX = cropRect.w < 0 ? cropRect.x + cropRect.w : cropRect.x;
@@ -270,17 +269,49 @@ setEmbBtn.onclick = async () => {
     const side = Math.abs(cropRect.w);
 
     offscreenCtx.drawImage(uploadedImg, realX, realY, side, side, 0, 0, INPUT_SIZE, INPUT_SIZE);
-    
+
+    const url = "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors";
+    const res = await fetch(url);
+
+    const contentLength = res.headers.get("Content-Length");
+    const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+    const reader = res.body.getReader();
+    let received = 0;
+    const chunks = [];
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        chunks.push(value);
+        received += value.length;
+
+        if (total) {
+            const percent = Math.round((received / total) * 100);
+            setEmbBtn.textContent = `Loading ${percent}%`;
+        } else {
+            setEmbBtn.textContent = `Loading ${Math.round(received / 1024)} KB`;
+        }
+    }
+
+    const blob = new Blob(chunks);
+    const blobUrl = URL.createObjectURL(blob);
+
     const device = await getDevice();
-    net = await ADAFACE.load(device, "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors");
-    
+    net = await ADAFACE.load(device, blobUrl);
+
+    URL.revokeObjectURL(blobUrl);
+
+    setEmbBtn.textContent = "Processing...";
+
     const input = getInputTensor(offscreenCtx);
     const out = await net(input);
     dynamicEmb = out[0];
 
-    if(setupStream) setupStream.getTracks().forEach(t => t.stop());
+    if (setupStream) setupStream.getTracks().forEach(t => t.stop());
     setupUI.style.display = 'none';
-    
+
     const runStream = await navigator.mediaDevices.getUserMedia({ video: true });
     video.srcObject = runStream;
     requestAnimationFrame(processFrame);
