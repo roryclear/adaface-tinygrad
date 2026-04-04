@@ -1,101 +1,251 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Minimal RFDETR WebGPU</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdaFace WebGPU - BGR Tool</title>
 
-<script type="module">
-    import RFDETR from "./net.js";
-    window.RFDETR = RFDETR;
-</script>
+    <script type="module">
+        import RFDETR from "./net.js";
+        window.RFDETR = RFDETR;
+    </script>
 
-<style>
-    body {
-        margin: 0;
-        background: black;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        position: relative;
-        overflow: hidden;
-    }
-    #video, #overlay {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%) scaleX(-1);
-    }
-    #overlay {
-        pointer-events: none;
-    }
-    #outputContainer {
-        position: absolute;
-        bottom: 10px;
-        left: 10px;
-        background: rgba(0,0,0,0.6);
-        color: lime;
-        font-family: monospace;
-        padding: 4px;
-        max-height: 40%;
-        overflow: auto;
-        font-size: 12px;
-    }
-</style>
+    <style>
+        body {
+            margin: 0;
+            background: #050505;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+            color: #eee;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #video, #overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scaleX(-1);
+            max-width: 100vw;
+            max-height: 100vh;
+        }
+        #overlay { pointer-events: none; }
+        #outputContainer {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            border: 1px solid lime;
+            color: lime;
+            font-family: monospace;
+            padding: 10px;
+            font-size: 14px;
+            z-index: 5;
+        }
+        #setupUI {
+            position: absolute;
+            z-index: 100;
+            background: #111;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+        .controls { display: flex; gap: 10px; margin-bottom: 5px; }
+        #cropCanvas {
+            border: 2px solid #444;
+            cursor: crosshair;
+            background: #000;
+            max-width: 90vw;
+            max-height: 70vh;
+        }
+        button {
+            padding: 10px 18px;
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover { background: #444; }
+        button:disabled { opacity: 0.3; cursor: not-allowed; }
+        #setEmbBtn { background: #004400; border-color: lime; color: lime; font-weight: bold; }
+        input[type="file"] { font-size: 12px; }
+    </style>
 </head>
 <body>
+
+<div id="setupUI">
+    <h2 style="margin:0">AdaFace Reference Setup</h2>
+    <div class="controls">
+        <button id="toggleCamBtn">Use Camera</button>
+        <button id="snapBtn" style="display:none; background: #552200;">Capture Photo</button>
+        <input type="file" id="fileInput" accept="image/*">
+    </div>
+    <p style="font-size: 12px; color: #888;">Drag a <b>square</b> box over the face</p>
+    <canvas id="cropCanvas"></canvas>
+    <button id="setEmbBtn" disabled>Generate Embedding & Start</button>
+</div>
 
 <video id="video" autoplay muted playsinline></video>
 <canvas id="overlay"></canvas>
 
 <div id="outputContainer">
-    <pre id="output"></pre>
+    <div id="output">Waiting for setup...</div>
 </div>
 
 <script>
 const INPUT_SIZE = 112;
-
 let net = null;
+let dynamicEmb = null;
+let setupStream = null;
+let isDragging = false;
+let uploadedImg = new Image();
+let cropRect = { x: 0, y: 0, w: 0, h: 0 };
+
 const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');
 const overlayCtx = overlay.getContext('2d');
 const outputEl = document.getElementById('output');
+const setupUI = document.getElementById('setupUI');
+const cropCanvas = document.getElementById('cropCanvas');
+const ctxCrop = cropCanvas.getContext('2d');
+const fileInput = document.getElementById('fileInput');
+const setEmbBtn = document.getElementById('setEmbBtn');
+const toggleCamBtn = document.getElementById('toggleCamBtn');
+const snapBtn = document.getElementById('snapBtn');
 
-// Offscreen canvas
 const offscreenCanvas = document.createElement('canvas');
 offscreenCanvas.width = INPUT_SIZE;
 offscreenCanvas.height = INPUT_SIZE;
 const offscreenCtx = offscreenCanvas.getContext('2d');
 
-// Camera setup
-if (navigator.mediaDevices?.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-        .then(stream => { video.srcObject = stream; })
-        .catch(err => { console.error("Camera error:", err); });
-}
+// --- 1. SETUP PHASE: CAMERA & UPLOAD ---
 
-// Main loop
+toggleCamBtn.onclick = async () => {
+    try {
+        setupStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = setupStream;
+        snapBtn.style.display = 'inline-block';
+        
+        const previewLoop = () => {
+            if (!setupStream) return;
+            if (video.videoWidth > 0) {
+                cropCanvas.width = video.videoWidth;
+                cropCanvas.height = video.videoHeight;
+                ctxCrop.save();
+                ctxCrop.scale(-1, 1); // Natural mirror mode
+                ctxCrop.drawImage(video, -cropCanvas.width, 0);
+                ctxCrop.restore();
+            }
+            requestAnimationFrame(previewLoop);
+        };
+        previewLoop();
+    } catch (e) { alert("Camera access denied."); }
+};
+
+snapBtn.onclick = () => {
+    uploadedImg.src = cropCanvas.toDataURL('image/jpeg');
+    uploadedImg.onload = () => {
+        setupStream.getTracks().forEach(t => t.stop());
+        setupStream = null;
+        snapBtn.style.display = 'none';
+        ctxCrop.drawImage(uploadedImg, 0, 0);
+    };
+};
+
+fileInput.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = event => {
+        uploadedImg.onload = () => {
+            cropCanvas.width = uploadedImg.width;
+            cropCanvas.height = uploadedImg.height;
+            ctxCrop.drawImage(uploadedImg, 0, 0);
+        };
+        uploadedImg.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+};
+
+// --- 2. SQUARE CROP LOGIC ---
+
+cropCanvas.onmousedown = e => {
+    const rect = cropCanvas.getBoundingClientRect();
+    cropRect.x = (e.clientX - rect.left) * (cropCanvas.width / rect.width);
+    cropRect.y = (e.clientY - rect.top) * (cropCanvas.height / rect.height);
+    isDragging = true;
+};
+
+cropCanvas.onmousemove = e => {
+    if (!isDragging) return;
+    const rect = cropCanvas.getBoundingClientRect();
+    const curX = (e.clientX - rect.left) * (cropCanvas.width / rect.width);
+    const curY = (e.clientY - rect.top) * (cropCanvas.height / rect.height);
+
+    // Force Square
+    let side = Math.max(Math.abs(curX - cropRect.x), Math.abs(curY - cropRect.y));
+    cropRect.w = (curX < cropRect.x) ? -side : side;
+    cropRect.h = (curY < cropRect.y) ? -side : side;
+
+    ctxCrop.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+    ctxCrop.drawImage(uploadedImg, 0, 0);
+    ctxCrop.strokeStyle = 'lime';
+    ctxCrop.lineWidth = 3;
+    ctxCrop.setLineDash([5, 5]);
+    ctxCrop.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+};
+
+cropCanvas.onmouseup = () => { 
+    isDragging = false; 
+    if (Math.abs(cropRect.w) > 5) setEmbBtn.disabled = false;
+};
+
+setEmbBtn.onclick = async () => {
+    setEmbBtn.textContent = "Processing...";
+    setEmbBtn.disabled = true;
+
+    // Normalize coordinates (handle backwards drag)
+    const realX = cropRect.w < 0 ? cropRect.x + cropRect.w : cropRect.x;
+    const realY = cropRect.h < 0 ? cropRect.y + cropRect.h : cropRect.y;
+    const side = Math.abs(cropRect.w);
+
+    // Resize to 112x112
+    offscreenCtx.drawImage(uploadedImg, realX, realY, side, side, 0, 0, INPUT_SIZE, INPUT_SIZE);
+    
+    const device = await getDevice();
+    net = await RFDETR.load(device, "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors");
+    
+    const input = getInputTensor(offscreenCtx);
+    const out = await net(input);
+    dynamicEmb = out[0]; // Store reference embedding
+
+    setupUI.style.display = 'none';
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+    requestAnimationFrame(processFrame);
+};
+
 async function processFrame() {
-    if (video.videoWidth === 0 || video.videoHeight === 0) {
-        requestAnimationFrame(processFrame);
-        return;
-    }
+    if (video.videoWidth === 0) return requestAnimationFrame(processFrame);
 
-    // Match overlay size to video size
     overlay.width = video.clientWidth;
     overlay.height = video.clientHeight;
-
-    // Draw center square overlay
     overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
     const squareSize = Math.min(overlay.width, overlay.height) * 0.5;
     const squareX = (overlay.width - squareSize) / 2;
     const squareY = (overlay.height - squareSize) / 2;
-    overlayCtx.strokeStyle = 'lime';
+    overlayCtx.strokeStyle = 'cyan';
     overlayCtx.lineWidth = 2;
     overlayCtx.strokeRect(squareX, squareY, squareSize, squareSize);
 
-    // Crop exact center of video matching the square
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     const cropSize = Math.min(vw, vh) * 0.5;
@@ -105,34 +255,16 @@ async function processFrame() {
     offscreenCtx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, INPUT_SIZE, INPUT_SIZE);
 
     const input = getInputTensor(offscreenCtx);
-    const output = await runModel(input);
-
-    // Format output as [0.1, 0.2, -0.3, ...]
-    outputEl.textContent = output;
+    const out = await net(input);
+    
+    let sim = 0;
+    for (let i = 0; i < dynamicEmb.length; i++) sim += dynamicEmb[i] * out[0][i];
+    outputEl.textContent = `Similarity: ${Math.round(sim.toFixed(4) * 100)}%`;
+    outputEl.style.color = sim > 0.4 ? 'lime' : 'red';
 
     requestAnimationFrame(processFrame);
 }
 
-requestAnimationFrame(processFrame);
-
-// Model loader
-async function runModel(input) {
-    if (!net) {
-        const device = await getDevice();
-        net = await RFDETR.load(
-            device,
-            "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors"
-        );
-    }
-    // my face hardcoded for now
-    const emb = new Float32Array([0.028795979917049408,-0.019482791423797607,0.0251447893679142,-0.003913894295692444,-0.057399850338697433,0.01775517128407955,0.00480442913249135,-0.08099126070737839,0.014460391364991665,0.04095008596777916,-0.0009981537004932761,0.07221794128417969,-0.04946465417742729,0.03887185826897621,0.11164992302656174,-0.03368375822901726,0.014489908702671528,0.007473372388631105,0.07705722749233246,0.06697151809930801,-0.0019180249655619264,-0.04573338106274605,-0.02527131699025631,0.03789632394909859,-0.07190386950969696,0.025451280176639557,0.052116185426712036,-0.050245821475982666,-0.015802351757884026,-0.04328078031539917,-0.058781061321496964,-0.009002183564007282,0.0041611832566559315,0.0200419370085001,-0.12416517734527588,0.0011628458742052317,-0.013796369545161724,-0.02931489609181881,-0.034742116928100586,-0.05304436385631561,-0.007736054714769125,-0.0046925931237638,0.026372838765382767,-0.039739493280649185,-0.011167162097990513,-0.058202531188726425,-0.00468073133379221,0.03767215833067894,-0.027000444009900093,-0.013563754968345165,0.019347909837961197,0.009651508182287216,-0.005325825419276953,0.04411270469427109,-0.03524549677968025,0.06061137840151787,-0.05028853192925453,0.005955115891993046,0.03441550210118294,-0.02168363891541958,-0.021337369456887245,0.022682705894112587,-0.04475703090429306,-0.02025923691689968,-0.0723300650715828,-0.034172121435403824,-0.00008353927114512771,-0.048739366233348846,0.034057050943374634,-0.0392606221139431,0.0008761069038882852,0.05783598870038986,-0.008175861090421677,0.022704344242811203,-0.06634701788425446,0.005627586971968412,0.03980831801891327,-0.03832056000828743,-0.04505576938390732,-0.07894346117973328,-0.0718633309006691,-0.017760565504431725,-0.07363242655992508,0.05333947390317917,-0.06786681711673737,0.02284937910735607,0.07792617380619049,-0.0014564511366188526,-0.014112086035311222,0.013534625060856342,0.012312222272157669,0.018921062350273132,-0.033111751079559326,0.023903070017695427,-0.00959036685526371,-0.01920606568455696,0.0217896718531847,0.029729660600423813,-0.010225239209830761,-0.05968122184276581,-0.037512537091970444,0.011116008274257183,0.0227667186409235,0.008271736092865467,0.011810445226728916,0.02195483073592186,-0.07561976462602615,-0.06447269022464752,0.03419326990842819,-0.038494810461997986,-0.00494414521381259,-0.06380203366279602,-0.04252908378839493,-0.005124413408339024,-0.01063842698931694,-0.04179715737700462,0.019561825320124626,-0.05456288903951645,-0.04366233944892883,-0.01660989783704281,0.026495937258005142,0.020965512841939926,-0.05527438595890999,0.06499946862459183,0.029224621132016182,-0.07209858298301697,-0.002920587547123432,-0.01845904253423214,-0.005374252330511808,-0.010868911631405354,0.011703750118613243,-0.0388420931994915,0.0258393082767725,0.08958286792039871,-0.09167340397834778,0.004114469513297081,-0.015729250386357307,-0.086778923869133,-0.06165245547890663,0.00798840168863535,-0.027056289836764336,-0.03325248137116432,-0.009807293303310871,0.05359858646988869,-0.0024042034056037664,0.00225074402987957,0.01117146760225296,0.0574074313044548,-0.01033876184374094,0.0024343361146748066,-0.014119492843747139,0.009945044293999672,-0.034904010593891144,0.047927211970090866,0.01559770293533802,-0.09414214640855789,0.013276607729494572,0.03289848938584328,-0.002492914441972971,-0.012249798513948917,0.022645041346549988,0.05249110981822014,0.032891400158405304,0.08923427760601044,0.08176805824041367,0.051500577479600906,0.018124258145689964,0.010075435973703861,-0.05915236845612526,-0.023478686809539795,0.073370061814785,0.025187186896800995,-0.08089932799339294,-0.03630909323692322,0.04533885046839714,0.052840255200862885,0.044887933880090714,0.01632521115243435,-0.05452800542116165,0.0388580821454525,-0.036403633654117584,-0.054035287350416183,-0.002875420730561018,-0.050446767359972,0.044156264513731,-0.004846873227506876,0.07842309772968292,-0.04807814955711365,-0.004616705235093832,0.045357901602983475,0.022832926362752914,-0.05736005678772926,0.05644520744681358,0.05088202655315399,0.05140727013349533,0.0002704705111682415,0.015721596777439117,0.04134872555732727,0.028116317465901375,-0.014064536429941654,0.015627389773726463,-0.01173464022576809,-0.014380322769284248,0.029152048751711845,-0.06056573614478111,-0.047356199473142624,-0.005671574268490076,-0.010791554115712643,-0.0456145741045475,-0.017722541466355324,0.0805240049958229,0.07894415408372879,0.03167705237865448,0.022476164624094963,0.02205248735845089,-0.06660323590040207,0.04709739610552788,0.041115861386060715,0.010225695557892323,0.05053248256444931,-0.04261285811662674,-0.03330891206860542,-0.03842287138104439,-0.06727863848209381,0.031243372708559036,-0.0565214529633522,0.09603226184844971,-0.0008006557472981513,0.08506910502910614,0.07854370772838593,0.0017050718888640404,0.0006015797844156623,0.03518078103661537,0.024958830326795578,-0.003359953872859478,0.011090596206486225,0.06666576117277145,0.0007871315465308726,0.010036720894277096,-0.0368126705288887,-0.015520229004323483,-0.009132036939263344,0.03552279993891716,0.042063649743795395,0.013596572913229465,0.05977802723646164,-0.023315362632274628,0.030984412878751755,-0.09370093047618866,0.12321578711271286,0.031137431040406227,0.014011520892381668,0.029586393386125565,0.004615736659616232,-0.05649733915925026,-0.06336086988449097,-0.13700377941131592,0.0011722868075594306,-0.0031899274326860905,-0.012884976342320442,-0.04794296622276306,0.008580400608479977,0.0052665602415800095,0.030971594154834747,0.04951157048344612,0.1074383556842804,-0.0207496490329504,-0.06280463933944702,0.0322357602417469,-0.003066333243623376,-0.005967303644865751,-0.016467725858092308,0.01445327140390873,-0.024286789819598198,0.025555960834026337,-0.03539453446865082,-0.01993607170879841,-0.02443540096282959,-0.07286214083433151,-0.06662693619728088,-0.021182898432016373,-0.021258151158690453,-0.0661202073097229,0.010094761848449707,0.023877911269664764,0.1295427531003952,0.0015316079370677471,0.039733514189720154,-0.055352311581373215,-0.03399418666958809,-0.0313141755759716,0.016184791922569275,-0.024911629036068916,-0.015054697170853615,0.015913061797618866,-0.11053071171045303,-0.0753958523273468,0.07842806726694107,0.021705124527215958,0.015131996013224125,0.02645541913807392,0.06019740551710129,0.0811510756611824,0.003375378670170903,0.05800981447100639,-0.0800362303853035,-0.014185604639351368,0.059768564999103546,-0.030477993190288544,0.020182877779006958,0.020046992227435112,-0.058814115822315216,0.006275591440498829,-0.015458760783076286,-0.023162292316555977,-0.023490983992815018,-0.03649068996310234,-0.008761311881244183,0.022681117057800293,-0.06863318383693695,0.033787962049245834,-0.01151319406926632,0.08241865783929825,0.0519326776266098,-0.014829045161604881,-0.007290327455848455,0.02418636903166771,0.06136782094836235,-0.00035465965629555285,-0.03364867717027664,0.020738251507282257,0.014915913343429565,-0.06618110090494156,-0.05950002372264862,-0.04914376139640808,-0.03461967036128044,0.00017475000640843064,-0.06400229036808014,0.012695101089775562,-0.056451499462127686,0.010367711074650288,0.010124162770807743,-0.004720842000097036,-0.03433864191174507,0.0275424774736166,-0.09398070722818375,0.03503970056772232,0.007537911180406809,0.00605959864333272,-0.0010714282980188727,0.0034742916468530893,0.048151612281799316,-0.08875945955514908,-0.05280279368162155,0.005297900643199682,0.04196729511022568,-0.008004670031368732,-0.029520796611905098,0.02031460963189602,0.05224047228693962,-0.015856387093663216,-0.0504351481795311,0.009563982486724854,0.05457174405455589,-0.02887614071369171,-0.004840299021452665,-0.036489199846982956,-0.02759181335568428,-0.015872102230787277,-0.0043218983337283134,-0.05375583469867706,0.01355603989213705,-0.07151040434837341,-0.07497236132621765,0.03715807572007179,0.023113494738936424,0.023770896717905998,0.031560394912958145,0.009076000191271305,-0.036914076656103134,0.049089085310697556,-0.014235837385058403,0.07785051316022873,0.07424432784318924,-0.09782993793487549,0.007349404506385326,0.05921978875994682,-0.055358029901981354,-0.0153141925111413,-0.03130602091550827,0.01872728392481804,-0.06433384865522385,-0.024635331705212593,-0.0020378748886287212,-0.04251570627093315,0.08014204353094101,0.007271516602486372,0.023738963529467583,0.01729300431907177,-0.0649244636297226,0.021678796038031578,-0.04063934460282326,0.09822525084018707,0.021170392632484436,-0.009777502156794071,0.02663843147456646,-0.00044597272062674165,-0.013275816105306149,-0.012918272987008095,0.01921221986413002,-0.025853056460618973,0.059523191303014755,0.02749621868133545,0.031472962349653244,-0.03621615469455719,-0.06338820606470108,0.021195003762841225,0.0007317473646253347,0.06331279128789902,-0.023843158036470413,-0.07035225629806519,0.04811953008174896,0.00041857355972751975,0.009157704189419746,0.010741028003394604,0.0012112072436138988,-0.056296005845069885,0.06985260546207428,0.03239884600043297,0.07767283171415329,-0.020810632035136223,0.011626525782048702,-0.08402522653341293,0.03382750600576401,0.01706509105861187,-0.047648556530475616,0.024587435647845268,-0.010734092444181442,0.0045848023146390915,-0.03490159660577774,-0.048576720058918,-0.047596778720617294,0.040859684348106384,0.04019865021109581,-0.032541077584028244,-0.005669055972248316,-0.07300710678100586,-0.015540063381195068,-0.016283567994832993,-0.07294365018606186,0.0888262465596199,0.012336844578385353,-0.008007279597222805,-0.06851774454116821,-0.009466840885579586,0.02026880532503128,-0.09531491994857788,-0.05880812555551529,0.013549472205340862,-0.050567563623189926,-0.021158890798687935,0.07531332224607468,0.08015788346529007,0.0016743106534704566,-0.04784051328897476,0.004077222663909197,-0.02152871899306774,0.014745969325304031,0.032425764948129654,0.04115883633494377,-0.014359614811837673,-0.06916692107915878,-0.034453075379133224,0.007002016995102167,-0.05487513914704323,-0.04761696979403496,-0.004455675836652517,-0.07835980504751205,0.04672796279191971,-0.02660118229687214,-0.010913531295955181,-0.05674028769135475,0.006577131804078817,-0.06693617254495621,-0.03745574876666069,-0.08347523212432861,-0.03072616457939148,0.02183648757636547,-0.028082367032766342,-0.015035274438560009,0.07295982539653778,0.020674288272857666,-0.013243217021226883,-0.08249616622924805,-0.0010963701643049717,0.008858556859195232,0.031527839601039886,0.0311629269272089,-0.03736830875277519,0.08890014886856079,-0.014242715202271938,-0.07155300676822662,0.008866230957210064,-0.06327290087938309,0.032505057752132416,0.01440238393843174,-0.0003705567796714604,0.08567380905151367,-0.017588675022125244,-0.019374290481209755,-0.07920621335506439,-0.06647904217243195])
-    const x = await net(input, emb);
-    let sum = 0;
-    for (let i = 0; i < emb.length; i++) sum += emb[i] * x[0][i];
-    return sum;
-}
-
-// Image → float32 tensor
 function getInputTensor(ctx) {
     const imgData = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
     const pixels = imgData.data;
@@ -146,12 +278,7 @@ function getInputTensor(ctx) {
     return input;
 }
 
-// WebGPU
 async function getDevice() {
-    if (!navigator.gpu) {
-        console.error("WebGPU not supported");
-        return null;
-    }
     const adapter = await navigator.gpu.requestAdapter();
     return await adapter.requestDevice();
 }
