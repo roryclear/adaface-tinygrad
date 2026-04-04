@@ -3,13 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AdaFace WebGPU - BGR Tool</title>
-
+    <title>AdaFace WebGPU</title>
     <script type="module">
         import RFDETR from "./net.js";
         window.RFDETR = RFDETR;
     </script>
-
     <style>
         body {
             margin: 0;
@@ -56,7 +54,7 @@
             justify-content: center;
             gap: 15px;
         }
-        .controls { display: flex; gap: 10px; margin-bottom: 5px; }
+        .controls { display: flex; gap: 10px; margin-bottom: 5px; align-items: center;}
         #cropCanvas {
             border: 2px solid #444;
             cursor: crosshair;
@@ -73,21 +71,22 @@
             border-radius: 4px;
         }
         button:hover { background: #444; }
-        button:disabled { opacity: 0.3; cursor: not-allowed; }
+        #snapBtn { background: #552200; border-color: #aa4400; }
         #setEmbBtn { background: #004400; border-color: lime; color: lime; font-weight: bold; }
-        input[type="file"] { font-size: 12px; }
+        #setEmbBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+        input[type="file"] { font-size: 12px; color: #888; }
     </style>
 </head>
 <body>
 
 <div id="setupUI">
-    <h2 style="margin:0">AdaFace Reference Setup</h2>
+    <h2 style="margin:0">AdaFace tinygrad</h2>
     <div class="controls">
-        <button id="toggleCamBtn">Use Camera</button>
-        <button id="snapBtn" style="display:none; background: #552200;">Capture Photo</button>
+        <button id="snapBtn">Capture Live Photo</button>
+        <span style="color:#666">or</span>
         <input type="file" id="fileInput" accept="image/*">
     </div>
-    <p style="font-size: 12px; color: #888;">Drag a <b>square</b> box over the face</p>
+    <p style="font-size: 12px; color: #888;">Drag a <b>square</b> box over the face to crop</p>
     <canvas id="cropCanvas"></canvas>
     <button id="setEmbBtn" disabled>Generate Embedding & Start</button>
 </div>
@@ -96,7 +95,7 @@
 <canvas id="overlay"></canvas>
 
 <div id="outputContainer">
-    <div id="output">Waiting for setup...</div>
+    <div id="output"></div>
 </div>
 
 <script>
@@ -105,6 +104,7 @@ let net = null;
 let dynamicEmb = null;
 let setupStream = null;
 let isDragging = false;
+let isUsingLiveFeed = true; // Track if we are currently previewing camera
 let uploadedImg = new Image();
 let cropRect = { x: 0, y: 0, w: 0, h: 0 };
 
@@ -117,7 +117,6 @@ const cropCanvas = document.getElementById('cropCanvas');
 const ctxCrop = cropCanvas.getContext('2d');
 const fileInput = document.getElementById('fileInput');
 const setEmbBtn = document.getElementById('setEmbBtn');
-const toggleCamBtn = document.getElementById('toggleCamBtn');
 const snapBtn = document.getElementById('snapBtn');
 
 const offscreenCanvas = document.createElement('canvas');
@@ -125,43 +124,59 @@ offscreenCanvas.width = INPUT_SIZE;
 offscreenCanvas.height = INPUT_SIZE;
 const offscreenCtx = offscreenCanvas.getContext('2d');
 
-// --- 1. SETUP PHASE: CAMERA & UPLOAD ---
+// --- 1. INITIALIZATION ---
 
-toggleCamBtn.onclick = async () => {
+window.onload = async () => {
     try {
         setupStream = await navigator.mediaDevices.getUserMedia({ video: true });
         video.srcObject = setupStream;
-        snapBtn.style.display = 'inline-block';
-        
-        const previewLoop = () => {
-            if (!setupStream) return;
-            if (video.videoWidth > 0) {
-                cropCanvas.width = video.videoWidth;
-                cropCanvas.height = video.videoHeight;
-                ctxCrop.save();
-                ctxCrop.scale(-1, 1); // Natural mirror mode
-                ctxCrop.drawImage(video, -cropCanvas.width, 0);
-                ctxCrop.restore();
-            }
-            requestAnimationFrame(previewLoop);
-        };
-        previewLoop();
-    } catch (e) { alert("Camera access denied."); }
+        outputEl.textContent = "Camera Ready. Select face area.";
+        startPreviewLoop();
+    } catch (e) {
+        outputEl.textContent = "Error: Camera access denied.";
+        alert("Please allow camera access to use this tool.");
+    }
 };
 
+function startPreviewLoop() {
+    const preview = () => {
+        if (!isUsingLiveFeed) return; // Stop drawing camera if user switched to file/snap
+        if (video.videoWidth > 0) {
+            cropCanvas.width = video.videoWidth;
+            cropCanvas.height = video.videoHeight;
+            ctxCrop.save();
+            ctxCrop.scale(-1, 1); // Mirror mode
+            ctxCrop.drawImage(video, -cropCanvas.width, 0);
+            ctxCrop.restore();
+        }
+        requestAnimationFrame(preview);
+    };
+    preview();
+}
+
+// --- 2. CAPTURE / UPLOAD LOGIC ---
+
 snapBtn.onclick = () => {
+    isUsingLiveFeed = false;
     uploadedImg.src = cropCanvas.toDataURL('image/jpeg');
     uploadedImg.onload = () => {
-        setupStream.getTracks().forEach(t => t.stop());
-        setupStream = null;
-        snapBtn.style.display = 'none';
         ctxCrop.drawImage(uploadedImg, 0, 0);
+        snapBtn.textContent = "Retake Photo";
+        snapBtn.onclick = () => { 
+            isUsingLiveFeed = true; 
+            snapBtn.textContent = "Capture Live Photo";
+            startPreviewLoop(); 
+            setEmbBtn.disabled = true;
+            // Reset the onclick back to capture
+            snapBtn.onclick = arguments.callee; 
+        };
     };
 };
 
 fileInput.onchange = e => {
     const file = e.target.files[0];
     if (!file) return;
+    isUsingLiveFeed = false;
     const reader = new FileReader();
     reader.onload = event => {
         uploadedImg.onload = () => {
@@ -174,9 +189,10 @@ fileInput.onchange = e => {
     reader.readAsDataURL(file);
 };
 
-// --- 2. SQUARE CROP LOGIC ---
+// --- 3. SQUARE CROP LOGIC ---
 
 cropCanvas.onmousedown = e => {
+    if (isUsingLiveFeed) return; // Require a "frozen" image to crop
     const rect = cropCanvas.getBoundingClientRect();
     cropRect.x = (e.clientX - rect.left) * (cropCanvas.width / rect.width);
     cropRect.y = (e.clientY - rect.top) * (cropCanvas.height / rect.height);
@@ -189,34 +205,30 @@ cropCanvas.onmousemove = e => {
     const curX = (e.clientX - rect.left) * (cropCanvas.width / rect.width);
     const curY = (e.clientY - rect.top) * (cropCanvas.height / rect.height);
 
-    // Force Square
     let side = Math.max(Math.abs(curX - cropRect.x), Math.abs(curY - cropRect.y));
     cropRect.w = (curX < cropRect.x) ? -side : side;
     cropRect.h = (curY < cropRect.y) ? -side : side;
 
     ctxCrop.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
     ctxCrop.drawImage(uploadedImg, 0, 0);
-    ctxCrop.strokeStyle = 'lime';
+    ctxCrop.strokeStyle = 'cyan';
     ctxCrop.lineWidth = 3;
-    ctxCrop.setLineDash([5, 5]);
     ctxCrop.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
 };
 
 cropCanvas.onmouseup = () => { 
     isDragging = false; 
-    if (Math.abs(cropRect.w) > 5) setEmbBtn.disabled = false;
+    if (Math.abs(cropRect.w) > 10) setEmbBtn.disabled = false;
 };
 
 setEmbBtn.onclick = async () => {
-    setEmbBtn.textContent = "Processing...";
+    setEmbBtn.textContent = "Loading...";
     setEmbBtn.disabled = true;
 
-    // Normalize coordinates (handle backwards drag)
     const realX = cropRect.w < 0 ? cropRect.x + cropRect.w : cropRect.x;
     const realY = cropRect.h < 0 ? cropRect.y + cropRect.h : cropRect.y;
     const side = Math.abs(cropRect.w);
 
-    // Resize to 112x112
     offscreenCtx.drawImage(uploadedImg, realX, realY, side, side, 0, 0, INPUT_SIZE, INPUT_SIZE);
     
     const device = await getDevice();
@@ -224,11 +236,14 @@ setEmbBtn.onclick = async () => {
     
     const input = getInputTensor(offscreenCtx);
     const out = await net(input);
-    dynamicEmb = out[0]; // Store reference embedding
+    dynamicEmb = out[0];
 
+    // Kill the setup stream and switch to inference stream
+    if(setupStream) setupStream.getTracks().forEach(t => t.stop());
     setupUI.style.display = 'none';
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    video.srcObject = stream;
+    
+    const runStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = runStream;
     requestAnimationFrame(processFrame);
 };
 
@@ -243,7 +258,6 @@ async function processFrame() {
     const squareX = (overlay.width - squareSize) / 2;
     const squareY = (overlay.height - squareSize) / 2;
     overlayCtx.strokeStyle = 'cyan';
-    overlayCtx.lineWidth = 2;
     overlayCtx.strokeRect(squareX, squareY, squareSize, squareSize);
 
     const vw = video.videoWidth;
@@ -259,8 +273,9 @@ async function processFrame() {
     
     let sim = 0;
     for (let i = 0; i < dynamicEmb.length; i++) sim += dynamicEmb[i] * out[0][i];
+
     outputEl.textContent = `Similarity: ${Math.round(sim.toFixed(4) * 100)}%`;
-    outputEl.style.color = sim > 0.4 ? 'lime' : 'red';
+    outputEl.style.color = sim > 0.4 ? 'lime' : '#ff4444';
 
     requestAnimationFrame(processFrame);
 }
@@ -283,6 +298,5 @@ async function getDevice() {
     return await adapter.requestDevice();
 }
 </script>
-
 </body>
 </html>
