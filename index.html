@@ -42,16 +42,6 @@
         overflow: auto;
         font-size: 12px;
     }
-    #copyBtn {
-        display: block;
-        margin-top: 4px;
-        background: #333;
-        color: lime;
-        border: 1px solid lime;
-        cursor: pointer;
-        font-size: 12px;
-        padding: 2px 4px;
-    }
 </style>
 </head>
 <body>
@@ -61,7 +51,6 @@
 
 <div id="outputContainer">
     <pre id="output"></pre>
-    <button id="copyBtn">Copy Output</button>
 </div>
 
 <script>
@@ -72,7 +61,6 @@ const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');
 const overlayCtx = overlay.getContext('2d');
 const outputEl = document.getElementById('output');
-const copyBtn = document.getElementById('copyBtn');
 
 // Offscreen canvas
 const offscreenCanvas = document.createElement('canvas');
@@ -86,11 +74,6 @@ if (navigator.mediaDevices?.getUserMedia) {
         .then(stream => { video.srcObject = stream; })
         .catch(err => { console.error("Camera error:", err); });
 }
-
-// Copy button
-copyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(outputEl.textContent);
-});
 
 // Main loop
 async function processFrame() {
