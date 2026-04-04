@@ -14,7 +14,8 @@
             background: #050505;
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
+            padding-top: 20px;
             height: 100vh;
             position: relative;
             overflow: hidden;
@@ -51,19 +52,28 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            gap: 15px;
+            justify-content: flex-start;
+            gap: 10px;
+            padding-top: 10px;
         }
-        .controls { display: flex; gap: 10px; margin-bottom: 5px; align-items: center;}
+        .controls {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
         #cropCanvas {
             border: 2px solid #444;
             cursor: crosshair;
             background: #000;
             max-width: 90vw;
-            max-height: 70vh;
+            max-height: 60vh;
+            touch-action: none;
         }
         button {
-            padding: 10px 18px;
+            padding: 6px 10px;
+            font-size: 12px;
             background: #333;
             color: white;
             border: 1px solid #555;
@@ -72,23 +82,36 @@
         }
         button:hover { background: #444; }
         #snapBtn { background: #552200; border-color: #aa4400; }
-        #setEmbBtn { background: #004400; border-color: lime; color: lime; font-weight: bold; }
+        #setEmbBtn {
+            background: #004400;
+            border-color: lime;
+            color: lime;
+            font-weight: bold;
+        }
         #setEmbBtn:disabled { opacity: 0.3; cursor: not-allowed; }
-        input[type="file"] { font-size: 12px; color: #888; }
+        input[type="file"] {
+            font-size: 11px;
+            color: #888;
+            max-width: 120px;
+        }
     </style>
 </head>
 <body>
 
 <div id="setupUI">
-    <h2 style="margin:0">AdaFace tinygrad</h2>
+    <h3 style="margin:4px 0;">AdaFace tinygrad</h3>
+
     <canvas id="cropCanvas"></canvas>
+
     <div class="controls">
-        <button id="snapBtn">Capture Live Photo</button>
-        <span style="color:#666">or</span>
+        <button id="snapBtn">Capture</button>
         <input type="file" id="fileInput" accept="image/*">
+        <button id="setEmbBtn" disabled>Use</button>
     </div>
-    <p id="cropInst" style="display:none; font-size: 12px; color: #0f0;">Drag a <b>square</b> box over the face to crop</p>
-    <button id="setEmbBtn" disabled>Use photo</button>
+
+    <p id="cropInst" style="display:none; font-size: 11px; color: #0f0;">
+        Drag square over face
+    </p>
 </div>
 
 <video id="video" autoplay muted playsinline></video>
@@ -124,8 +147,7 @@ offscreenCanvas.width = INPUT_SIZE;
 offscreenCanvas.height = INPUT_SIZE;
 const offscreenCtx = offscreenCanvas.getContext('2d');
 
-// --- 1. INITIALIZATION ---
-
+// --- INIT ---
 window.onload = async () => {
     try {
         setupStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -134,18 +156,18 @@ window.onload = async () => {
         startPreviewLoop();
     } catch (e) {
         outputEl.textContent = "Error: Camera access denied.";
-        alert("Please allow camera access to use this tool.");
+        alert("Please allow camera access.");
     }
 };
 
 function startPreviewLoop() {
     const preview = () => {
-        if (!isUsingLiveFeed) return; // Stop drawing camera if user switched to file/snap
+        if (!isUsingLiveFeed) return;
         if (video.videoWidth > 0) {
             cropCanvas.width = video.videoWidth;
             cropCanvas.height = video.videoHeight;
             ctxCrop.save();
-            ctxCrop.scale(-1, 1); // Mirror mode
+            ctxCrop.scale(-1, 1);
             ctxCrop.drawImage(video, -cropCanvas.width, 0);
             ctxCrop.restore();
         }
@@ -154,28 +176,13 @@ function startPreviewLoop() {
     preview();
 }
 
-// --- 2. CAPTURE / UPLOAD LOGIC ---
-
+// --- SNAP / UPLOAD ---
 snapBtn.onclick = () => {
     document.getElementById('cropInst').style.display = 'block';
     isUsingLiveFeed = false;
     uploadedImg.src = cropCanvas.toDataURL('image/jpeg');
     uploadedImg.onload = () => {
         ctxCrop.drawImage(uploadedImg, 0, 0);
-        snapBtn.textContent = "Retake Photo";
-        snapBtn.onclick = () => {
-            isUsingLiveFeed = !isUsingLiveFeed;
-            if (!isUsingLiveFeed) {
-                uploadedImg.src = cropCanvas.toDataURL('image/jpeg');
-                uploadedImg.onload = () => ctxCrop.drawImage(uploadedImg, 0, 0);
-                snapBtn.textContent = "Retake Photo";
-                document.getElementById('cropInst').style.display = 'block';
-            } else {
-                snapBtn.textContent = "Capture Live Photo";
-                document.getElementById('cropInst').style.display = 'none';
-                startPreviewLoop();
-            }
-        };
     };
 };
 
@@ -183,8 +190,8 @@ fileInput.onchange = e => {
     const file = e.target.files[0];
     if (!file) return;
     isUsingLiveFeed = false;
-    document.getElementById('cropInst').style.display = 'block'; // Show instructions
-    snapBtn.textContent = "Retake Photo"; // Sync button state
+    document.getElementById('cropInst').style.display = 'block';
+
     const reader = new FileReader();
     reader.onload = event => {
         uploadedImg.onload = () => {
@@ -197,38 +204,63 @@ fileInput.onchange = e => {
     reader.readAsDataURL(file);
 };
 
-// --- 3. SQUARE CROP LOGIC ---
-
-cropCanvas.onmousedown = e => {
-    if (isUsingLiveFeed) return; // Require a "frozen" image to crop
+// --- MOBILE + MOUSE CROP ---
+function getCanvasCoords(e) {
     const rect = cropCanvas.getBoundingClientRect();
-    cropRect.x = (e.clientX - rect.left) * (cropCanvas.width / rect.width);
-    cropRect.y = (e.clientY - rect.top) * (cropCanvas.height / rect.height);
+    let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    return {
+        x: (clientX - rect.left) * (cropCanvas.width / rect.width),
+        y: (clientY - rect.top) * (cropCanvas.height / rect.height)
+    };
+}
+
+function startCrop(e) {
+    if (isUsingLiveFeed) return;
+    e.preventDefault();
+    const pos = getCanvasCoords(e);
+    cropRect.x = pos.x;
+    cropRect.y = pos.y;
     isDragging = true;
-};
+}
 
-cropCanvas.onmousemove = e => {
+function moveCrop(e) {
     if (!isDragging) return;
-    const rect = cropCanvas.getBoundingClientRect();
-    const curX = (e.clientX - rect.left) * (cropCanvas.width / rect.width);
-    const curY = (e.clientY - rect.top) * (cropCanvas.height / rect.height);
+    e.preventDefault();
 
-    let side = Math.max(Math.abs(curX - cropRect.x), Math.abs(curY - cropRect.y));
-    cropRect.w = (curX < cropRect.x) ? -side : side;
-    cropRect.h = (curY < cropRect.y) ? -side : side;
+    const pos = getCanvasCoords(e);
+
+    let side = Math.max(
+        Math.abs(pos.x - cropRect.x),
+        Math.abs(pos.y - cropRect.y)
+    );
+
+    cropRect.w = (pos.x < cropRect.x) ? -side : side;
+    cropRect.h = (pos.y < cropRect.y) ? -side : side;
 
     ctxCrop.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
     ctxCrop.drawImage(uploadedImg, 0, 0);
+
     ctxCrop.strokeStyle = 'cyan';
     ctxCrop.lineWidth = 3;
     ctxCrop.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
-};
+}
 
-cropCanvas.onmouseup = () => { 
-    isDragging = false; 
+function endCrop() {
+    isDragging = false;
     if (Math.abs(cropRect.w) > 10) setEmbBtn.disabled = false;
-};
+}
 
+cropCanvas.addEventListener('mousedown', startCrop);
+cropCanvas.addEventListener('mousemove', moveCrop);
+cropCanvas.addEventListener('mouseup', endCrop);
+
+cropCanvas.addEventListener('touchstart', startCrop, { passive: false });
+cropCanvas.addEventListener('touchmove', moveCrop, { passive: false });
+cropCanvas.addEventListener('touchend', endCrop);
+
+// --- EMBEDDING ---
 setEmbBtn.onclick = async () => {
     setEmbBtn.textContent = "Loading...";
     setEmbBtn.disabled = true;
@@ -246,7 +278,6 @@ setEmbBtn.onclick = async () => {
     const out = await net(input);
     dynamicEmb = out[0];
 
-    // Kill the setup stream and switch to inference stream
     if(setupStream) setupStream.getTracks().forEach(t => t.stop());
     setupUI.style.display = 'none';
     
@@ -294,9 +325,9 @@ function getInputTensor(ctx) {
     const input = new Float32Array(INPUT_SIZE * INPUT_SIZE * 3);
     let j = 0;
     for (let i = 0; i < pixels.length; i += 4) {
-        input[j++] = pixels[i + 2]; // B
-        input[j++] = pixels[i + 1]; // G
-        input[j++] = pixels[i];     // R
+        input[j++] = pixels[i + 2];
+        input[j++] = pixels[i + 1];
+        input[j++] = pixels[i];
     }
     return input;
 }
