@@ -1,92 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minimal RFDETR WebGPU</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minimal RFDETR WebGPU</title>
 
-    <script type="module">
-        import RFDETR from "./net.js";
-        window.RFDETR = RFDETR;
-    </script>
+<script type="module">
+    import RFDETR from "./net.js";
+    window.RFDETR = RFDETR;
+</script>
 
-    <style>
-        body {
-            margin: 0;
-            background: black;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-        }
-
-        video {
-            max-width: 100%;
-            max-height: 100%;
-        }
-    </style>
+<style>
+    body {
+        margin: 0;
+        background: black;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        position: relative;
+        overflow: hidden;
+    }
+    #video, #overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) scaleX(-1);
+    }
+    #overlay {
+        pointer-events: none;
+    }
+    #outputContainer {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        background: rgba(0,0,0,0.6);
+        color: lime;
+        font-family: monospace;
+        padding: 4px;
+        max-height: 40%;
+        overflow: auto;
+        font-size: 12px;
+    }
+    #copyBtn {
+        display: block;
+        margin-top: 4px;
+        background: #333;
+        color: lime;
+        border: 1px solid lime;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 2px 4px;
+    }
+</style>
 </head>
 <body>
 
 <video id="video" autoplay muted playsinline></video>
+<canvas id="overlay"></canvas>
+
+<div id="outputContainer">
+    <pre id="output"></pre>
+    <button id="copyBtn">Copy Output</button>
+</div>
 
 <script>
 const INPUT_SIZE = 112;
 
 let net = null;
-
 const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const overlayCtx = overlay.getContext('2d');
+const outputEl = document.getElementById('output');
+const copyBtn = document.getElementById('copyBtn');
 
-// Offscreen canvas for processing
+// Offscreen canvas
 const offscreenCanvas = document.createElement('canvas');
 offscreenCanvas.width = INPUT_SIZE;
 offscreenCanvas.height = INPUT_SIZE;
-const offscreenContext = offscreenCanvas.getContext('2d');
+const offscreenCtx = offscreenCanvas.getContext('2d');
 
-// CAMERA SETUP
+// Camera setup
 if (navigator.mediaDevices?.getUserMedia) {
     navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-        .then(stream => {
-            video.srcObject = stream;
-        })
-        .catch(err => {
-            console.error("Camera error:", err);
-        });
+        .then(stream => { video.srcObject = stream; })
+        .catch(err => { console.error("Camera error:", err); });
 }
 
-// MAIN LOOP
+// Copy button
+copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(outputEl.textContent);
+});
+
+// Main loop
 async function processFrame() {
     if (video.videoWidth === 0 || video.videoHeight === 0) {
         requestAnimationFrame(processFrame);
         return;
     }
 
+    // Match overlay size to video size
+    overlay.width = video.clientWidth;
+    overlay.height = video.clientHeight;
+
+    // Draw center square overlay
+    overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+    const squareSize = Math.min(overlay.width, overlay.height) * 0.5;
+    const squareX = (overlay.width - squareSize) / 2;
+    const squareY = (overlay.height - squareSize) / 2;
+    overlayCtx.strokeStyle = 'lime';
+    overlayCtx.lineWidth = 2;
+    overlayCtx.strokeRect(squareX, squareY, squareSize, squareSize);
+
+    // Crop exact center of video matching the square
     const vw = video.videoWidth;
     const vh = video.videoHeight;
-
-    // Center crop square
-    const cropSize = Math.min(vw, vh);
+    const cropSize = Math.min(vw, vh) * 0.5;
     const sx = (vw - cropSize) / 2;
     const sy = (vh - cropSize) / 2;
 
-    // Draw cropped area into 112x112
-    offscreenContext.drawImage(
-        video,
-        sx, sy, cropSize, cropSize,
-        0, 0, INPUT_SIZE, INPUT_SIZE
-    );
+    offscreenCtx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, INPUT_SIZE, INPUT_SIZE);
 
-    const input = getInputTensor(offscreenContext);
+    const input = getInputTensor(offscreenCtx);
     const output = await runModel(input);
 
-    console.log(output);
+    // Format output as [0.1, 0.2, -0.3, ...]
+    outputEl.textContent = '[' + Array.from(output).join(', ') + ']';
 
     requestAnimationFrame(processFrame);
 }
 
 requestAnimationFrame(processFrame);
 
-// MODEL
+// Model loader
 async function runModel(input) {
     if (!net) {
         const device = await getDevice();
@@ -95,34 +141,29 @@ async function runModel(input) {
             "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors"
         );
     }
-
     return await net(input);
 }
 
-// IMAGE → FLOAT32 TENSOR
+// Image → float32 tensor
 function getInputTensor(ctx) {
     const imgData = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
     const pixels = imgData.data;
-
     const input = new Float32Array(INPUT_SIZE * INPUT_SIZE * 3);
-
     let j = 0;
     for (let i = 0; i < pixels.length; i += 4) {
         input[j++] = pixels[i + 2]; // B
         input[j++] = pixels[i + 1]; // G
         input[j++] = pixels[i];     // R
     }
-
     return input;
 }
 
-// WEBGPU
+// WebGPU
 async function getDevice() {
     if (!navigator.gpu) {
         console.error("WebGPU not supported");
         return null;
     }
-
     const adapter = await navigator.gpu.requestAdapter();
     return await adapter.requestDevice();
 }
