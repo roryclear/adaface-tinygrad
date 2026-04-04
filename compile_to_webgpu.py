@@ -219,8 +219,8 @@ def export_model(model, target:str, *inputs, model_name: Optional[str] = "model"
 from adaface import ADAFACE
 if __name__ == "__main__":
     Device.DEFAULT = "WEBGPU"
-    rfdetr_infer = ADAFACE()
-    prg, inp_sizes, out_sizes, state = export_model(rfdetr_infer, Device.DEFAULT.lower(), Tensor.randn(112,112,3).cast(dtype=dtypes.uchar), model_name="RFDETR")
+    model = ADAFACE()
+    prg, inp_sizes, out_sizes, state = export_model(model, Device.DEFAULT.lower(), Tensor.randn(112,112,3).cast(dtype=dtypes.uchar), model_name="ADAFACE")
     dirname = Path(__file__).parent
     safe_save(state, (dirname / "net.safetensors").as_posix())
     with open(dirname / f"net.js", "w") as text_file:

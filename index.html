@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AdaFace WebGPU</title>
     <script type="module">
-        import RFDETR from "./net.js";
-        window.RFDETR = RFDETR;
+        import ADAFACE from "./net.js";
+        window.ADAFACE = ADAFACE;
     </script>
     <style>
         body {
@@ -240,7 +240,7 @@ setEmbBtn.onclick = async () => {
     offscreenCtx.drawImage(uploadedImg, realX, realY, side, side, 0, 0, INPUT_SIZE, INPUT_SIZE);
     
     const device = await getDevice();
-    net = await RFDETR.load(device, "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors");
+    net = await ADAFACE.load(device, "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors");
     
     const input = getInputTensor(offscreenCtx);
     const out = await net(input);
