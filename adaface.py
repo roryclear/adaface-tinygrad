@@ -60,6 +60,9 @@ class BasicBlockIR_tiny():
 
 sizes = [[64, 64, 2], [64, 64, 1], [64, 64, 1], [64, 128, 2], [128, 128, 1], [128, 128, 1], [128, 128, 1], [128, 256, 2], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 256, 1], [256, 512, 2], [512, 512, 1], [512, 512, 1]]
 
+#import pickle
+#rory_face = pickle.load(open('rory_face.pkl', 'rb'))
+
 class ADAFACE():
     def __init__(self):
 
@@ -76,7 +79,6 @@ class ADAFACE():
         state_dict = safe_load(fetch("https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors"))
         load_state_dict(self, state_dict)
 
-
     def __call__(self, x):
         x = ((x[:,:,::-1] / 255.) - 0.5) / 0.5
         x = x.permute(2,0,1).unsqueeze(0)
@@ -91,5 +93,5 @@ class ADAFACE():
         x = self.linear(x)
         x = self.bn2(x)
         norm = Tensor.sqrt(Tensor.sum(x * x, keepdim=True))
-        output = x / norm
-        return output, norm
+        output = (x / norm)[0]
+        return output 
