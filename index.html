@@ -81,14 +81,14 @@
 
 <div id="setupUI">
     <h2 style="margin:0">AdaFace tinygrad</h2>
+    <canvas id="cropCanvas"></canvas>
     <div class="controls">
         <button id="snapBtn">Capture Live Photo</button>
         <span style="color:#666">or</span>
         <input type="file" id="fileInput" accept="image/*">
     </div>
-    <p style="font-size: 12px; color: #888;">Drag a <b>square</b> box over the face to crop</p>
-    <canvas id="cropCanvas"></canvas>
-    <button id="setEmbBtn" disabled>Generate Embedding & Start</button>
+    <p id="cropInst" style="display:none; font-size: 12px; color: #0f0;">Drag a <b>square</b> box over the face to crop</p>
+    <button id="setEmbBtn" disabled>Use photo</button>
 </div>
 
 <video id="video" autoplay muted playsinline></video>
@@ -104,7 +104,7 @@ let net = null;
 let dynamicEmb = null;
 let setupStream = null;
 let isDragging = false;
-let isUsingLiveFeed = true; // Track if we are currently previewing camera
+let isUsingLiveFeed = true;
 let uploadedImg = new Image();
 let cropRect = { x: 0, y: 0, w: 0, h: 0 };
 
@@ -157,18 +157,24 @@ function startPreviewLoop() {
 // --- 2. CAPTURE / UPLOAD LOGIC ---
 
 snapBtn.onclick = () => {
+    document.getElementById('cropInst').style.display = 'block';
     isUsingLiveFeed = false;
     uploadedImg.src = cropCanvas.toDataURL('image/jpeg');
     uploadedImg.onload = () => {
         ctxCrop.drawImage(uploadedImg, 0, 0);
         snapBtn.textContent = "Retake Photo";
-        snapBtn.onclick = () => { 
-            isUsingLiveFeed = true; 
-            snapBtn.textContent = "Capture Live Photo";
-            startPreviewLoop(); 
-            setEmbBtn.disabled = true;
-            // Reset the onclick back to capture
-            snapBtn.onclick = arguments.callee; 
+        snapBtn.onclick = () => {
+            isUsingLiveFeed = !isUsingLiveFeed;
+            if (!isUsingLiveFeed) {
+                uploadedImg.src = cropCanvas.toDataURL('image/jpeg');
+                uploadedImg.onload = () => ctxCrop.drawImage(uploadedImg, 0, 0);
+                snapBtn.textContent = "Retake Photo";
+                document.getElementById('cropInst').style.display = 'block';
+            } else {
+                snapBtn.textContent = "Capture Live Photo";
+                document.getElementById('cropInst').style.display = 'none';
+                startPreviewLoop();
+            }
         };
     };
 };
@@ -177,6 +183,8 @@ fileInput.onchange = e => {
     const file = e.target.files[0];
     if (!file) return;
     isUsingLiveFeed = false;
+    document.getElementById('cropInst').style.display = 'block'; // Show instructions
+    snapBtn.textContent = "Retake Photo"; // Sync button state
     const reader = new FileReader();
     reader.onload = event => {
         uploadedImg.onload = () => {
