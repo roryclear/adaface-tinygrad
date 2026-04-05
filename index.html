@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AdaFace WebGPU</title>
+    <title>AdaFace WebGPU - Multi Enrollment</title>
     <script type="module">
         import ADAFACE from "./net.js";
         window.ADAFACE = ADAFACE;
@@ -42,6 +42,40 @@
             padding: 10px;
             font-size: 14px;
             z-index: 5;
+            max-height: 300px;
+            overflow-y: auto;
+            min-width: 220px;
+        }
+        .enrolled-thumb {
+            display: inline-block;
+            margin: 4px;
+            text-align: center;
+            vertical-align: top;
+            background: #1a1a1a;
+            padding: 4px;
+            border-radius: 4px;
+            border: 1px solid #333;
+        }
+        .enrolled-thumb canvas {
+            display: block;
+            margin-bottom: 2px;
+            border: 1px solid #555;
+        }
+        .enrolled-thumb span {
+            font-size: 10px;
+            color: #ccc;
+        }
+        .enrolled-thumb .remove-btn {
+            background: #660000;
+            border: none;
+            color: white;
+            font-size: 9px;
+            padding: 1px 4px;
+            margin-top: 2px;
+            cursor: pointer;
+            border-radius: 2px;
+            display: block;
+            width: 100%;
         }
         #setupUI {
             position: absolute;
@@ -94,24 +128,40 @@
             color: #888;
             max-width: 120px;
         }
+        #multiStatus {
+            font-size: 11px;
+            color: #0f0;
+            margin: 5px 0;
+            text-align: center;
+        }
+        .enrolled-list {
+            margin-top: 8px;
+            border-top: 1px solid #333;
+            padding-top: 5px;
+        }
+        .current-sim {
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
 
 <div id="setupUI">
-    <h3 style="margin:4px 0;">AdaFace tinygrad</h3>
+    <h3 style="margin:4px 0;">AdaFace tinygrad - Multi Enroll</h3>
 
     <canvas id="cropCanvas"></canvas>
 
     <div class="controls">
         <button id="snapBtn">Capture</button>
-        <input type="file" id="fileInput" accept="image/*">
-        <button id="setEmbBtn" disabled>Use</button>
+        <input type="file" id="fileInput" accept="image/*" multiple>
+        <button id="setEmbBtn" disabled>Add Enrolled Face</button>
+        <button id="clearEnrollBtn" style="background:#331100;">Clear All</button>
     </div>
 
     <p id="cropInst" style="display:none; font-size: 11px; color: #0f0;">
-        Drag square over face
+        Drag square over face, then click "Add Enrolled Face"
     </p>
+    <div id="multiStatus">Upload multiple images, crop each face → add to gallery</div>
 </div>
 
 <video id="video" autoplay muted playsinline></video>
@@ -121,17 +171,24 @@
     <canvas id="thumb" width="60" height="60"
     style="display:block;margin-bottom:6px;border:1px solid lime;"></canvas>
     <div id="output"></div>
+    <div class="enrolled-list">
+        <div style="font-size:10px; margin-bottom:4px;">Enrolled Faces (<span id="enrollCount">0</span>)</div>
+        <div id="enrolledGallery" style="max-height:180px; overflow-y:auto;"></div>
+    </div>
 </div>
 
 <script>
 const INPUT_SIZE = 112;
 let net = null;
-let dynamicEmbArray = [];
+let enrolledEmbeddings = []; // store { emb: Float32Array, thumbDataUrl: string, cropInfo: object }
 let setupStream = null;
 let isDragging = false;
-let isUsingLiveFeed = true;
+let isUsingLiveFeed = false; // start false: we are in upload mode initially, but after setup we switch
 let uploadedImg = new Image();
 let cropRect = { x: 0, y: 0, w: 0, h: 0 };
+let currentUploadedFileIndex = -1;
+let pendingFiles = []; // array of File objects
+let isLoadingModel = false;
 
 const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');
@@ -143,6 +200,10 @@ const ctxCrop = cropCanvas.getContext('2d');
 const fileInput = document.getElementById('fileInput');
 const setEmbBtn = document.getElementById('setEmbBtn');
 const snapBtn = document.getElementById('snapBtn');
+const clearEnrollBtn = document.getElementById('clearEnrollBtn');
+const enrollCountSpan = document.getElementById('enrollCount');
+const enrolledGalleryDiv = document.getElementById('enrolledGallery');
+const multiStatus = document.getElementById('multiStatus');
 
 const offscreenCanvas = document.createElement('canvas');
 offscreenCanvas.width = INPUT_SIZE;
@@ -150,13 +211,17 @@ offscreenCanvas.height = INPUT_SIZE;
 const offscreenCtx = offscreenCanvas.getContext('2d');
 const thumbCtx = document.getElementById('thumb').getContext('2d');
 
-// --- INIT ---
+// --- INIT camera but keep UI visible for multi upload ---
 window.onload = async () => {
     try {
         setupStream = await navigator.mediaDevices.getUserMedia({ video: true });
         video.srcObject = setupStream;
-        outputEl.textContent = "Camera Ready. Select face area.";
+        outputEl.textContent = "Ready. Upload images or capture.";
         startPreviewLoop();
+        // Initially no live feed cropping, but preview shows camera; but we only crop from uploaded images.
+        isUsingLiveFeed = false; // we will only process uploaded images
+        document.getElementById('cropInst').style.display = 'block';
+        multiStatus.innerText = "Upload multiple images, drag square on each face → 'Add Enrolled Face'";
     } catch (e) {
         outputEl.textContent = "Error: Camera access denied.";
         alert("Please allow camera access.");
@@ -165,49 +230,109 @@ window.onload = async () => {
 
 function startPreviewLoop() {
     const preview = () => {
-        if (!isUsingLiveFeed) return;
-        if (video.videoWidth > 0) {
+        // only show camera preview if we are not in cropping mode? Actually keep camera feed on cropCanvas when no upload
+        if (video.videoWidth > 0 && !isUsingLiveFeed && !uploadedImg.src) {
+            // If no uploaded image shown, show camera feed in cropCanvas (for convenience)
             cropCanvas.width = video.videoWidth;
             cropCanvas.height = video.videoHeight;
             ctxCrop.save();
             ctxCrop.scale(-1, 1);
             ctxCrop.drawImage(video, -cropCanvas.width, 0);
             ctxCrop.restore();
+        } else if (uploadedImg.src && !isUsingLiveFeed) {
+            // keep uploaded image displayed
         }
         requestAnimationFrame(preview);
     };
     preview();
 }
 
-// --- SNAP / UPLOAD ---
-snapBtn.onclick = () => {
-    document.getElementById('cropInst').style.display = 'block';
+// --- MULTI FILE HANDLING ---
+fileInput.onchange = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    pendingFiles = files;
+    currentUploadedFileIndex = 0;
     isUsingLiveFeed = false;
-    uploadedImg.src = cropCanvas.toDataURL('image/jpeg');
-    uploadedImg.onload = () => {
-        ctxCrop.drawImage(uploadedImg, 0, 0);
-    };
+    document.getElementById('cropInst').style.display = 'block';
+    multiStatus.innerText = `Loaded ${files.length} images. Crop face on each and click 'Add Enrolled Face'.`;
+    loadNextFileForCrop();
 };
 
-fileInput.onchange = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    isUsingLiveFeed = false;
-    document.getElementById('cropInst').style.display = 'block';
-
+function loadNextFileForCrop() {
+    if (currentUploadedFileIndex >= pendingFiles.length) {
+        multiStatus.innerText = `All ${pendingFiles.length} images processed. You can upload more or start recognition.`;
+        setEmbBtn.disabled = true;
+        cropRect = { x: 0, y: 0, w: 0, h: 0 };
+        ctxCrop.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
+        if (pendingFiles.length > 0) {
+            multiStatus.innerText += " Click 'Clear All' to reset gallery.";
+        }
+        return;
+    }
+    const file = pendingFiles[currentUploadedFileIndex];
     const reader = new FileReader();
-    reader.onload = event => {
+    reader.onload = (event) => {
         uploadedImg.onload = () => {
             cropCanvas.width = uploadedImg.width;
             cropCanvas.height = uploadedImg.height;
             ctxCrop.drawImage(uploadedImg, 0, 0);
+            cropRect = { x: 0, y: 0, w: 0, h: 0 };
+            setEmbBtn.disabled = true;
+            multiStatus.innerText = `Image ${currentUploadedFileIndex+1}/${pendingFiles.length}: Draw square around face, then click 'Add Enrolled Face'`;
         };
         uploadedImg.src = event.target.result;
     };
     reader.readAsDataURL(file);
+}
+
+// --- SNAP (capture from camera) also adds to queue: capture as new image ---
+snapBtn.onclick = () => {
+    if (!video.videoWidth) return;
+    const captureCanvas = document.createElement('canvas');
+    captureCanvas.width = video.videoWidth;
+    captureCanvas.height = video.videoHeight;
+    const capCtx = captureCanvas.getContext('2d');
+    capCtx.save();
+    capCtx.scale(-1, 1);
+    capCtx.drawImage(video, -captureCanvas.width, 0);
+    capCtx.restore();
+    captureCanvas.toBlob(blob => {
+        const capturedFile = new File([blob], `snap_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        if (currentUploadedFileIndex >= 0 && currentUploadedFileIndex < pendingFiles.length) {
+            pendingFiles.splice(currentUploadedFileIndex + 1, 0, capturedFile);
+            multiStatus.innerText = `Snapshot added. ${pendingFiles.length} total images. Click 'Add Enrolled Face' after cropping.`;
+        } else {
+            pendingFiles.push(capturedFile);
+            if (currentUploadedFileIndex === -1 || currentUploadedFileIndex >= pendingFiles.length - 1) {
+                currentUploadedFileIndex = pendingFiles.length - 1;
+                loadFileByIndex(currentUploadedFileIndex);
+            }
+            multiStatus.innerText = `Snapshot added. Total ${pendingFiles.length} images.`;
+        }
+        fileInput.value = '';
+    }, 'image/jpeg');
 };
 
-// --- MOBILE + MOUSE CROP ---
+function loadFileByIndex(index) {
+    if (index >= pendingFiles.length) return;
+    const file = pendingFiles[index];
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        uploadedImg.onload = () => {
+            cropCanvas.width = uploadedImg.width;
+            cropCanvas.height = uploadedImg.height;
+            ctxCrop.drawImage(uploadedImg, 0, 0);
+            cropRect = { x: 0, y: 0, w: 0, h: 0 };
+            setEmbBtn.disabled = true;
+            multiStatus.innerText = `Image ${index+1}/${pendingFiles.length}: Drag square, then Add.`;
+        };
+        uploadedImg.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+// --- CROP INTERACTION ---
 function getCanvasCoords(e) {
     const rect = cropCanvas.getBoundingClientRect();
     let clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -221,6 +346,7 @@ function getCanvasCoords(e) {
 
 function startCrop(e) {
     if (isUsingLiveFeed) return;
+    if (!uploadedImg.src) return;
     e.preventDefault();
     const pos = getCanvasCoords(e);
     cropRect.x = pos.x;
@@ -231,20 +357,17 @@ function startCrop(e) {
 function moveCrop(e) {
     if (!isDragging) return;
     e.preventDefault();
-
+    if (!uploadedImg.src) return;
     const pos = getCanvasCoords(e);
-
     let side = Math.max(
         Math.abs(pos.x - cropRect.x),
         Math.abs(pos.y - cropRect.y)
     );
-
     cropRect.w = (pos.x < cropRect.x) ? -side : side;
     cropRect.h = (pos.y < cropRect.y) ? -side : side;
 
     ctxCrop.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
     ctxCrop.drawImage(uploadedImg, 0, 0);
-
     ctxCrop.strokeStyle = 'cyan';
     ctxCrop.lineWidth = 3;
     ctxCrop.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
@@ -252,107 +375,267 @@ function moveCrop(e) {
 
 function endCrop() {
     isDragging = false;
-    if (Math.abs(cropRect.w) > 10) setEmbBtn.disabled = false;
+    if (!uploadedImg.src) return;
+    if (Math.abs(cropRect.w) > 10 && Math.abs(cropRect.h) > 10) {
+        setEmbBtn.disabled = false;
+    } else {
+        setEmbBtn.disabled = true;
+    }
 }
 
 cropCanvas.addEventListener('mousedown', startCrop);
 cropCanvas.addEventListener('mousemove', moveCrop);
 cropCanvas.addEventListener('mouseup', endCrop);
-
 cropCanvas.addEventListener('touchstart', startCrop, { passive: false });
 cropCanvas.addEventListener('touchmove', moveCrop, { passive: false });
 cropCanvas.addEventListener('touchend', endCrop);
 
-// --- EMBEDDING ---
+// --- ENROLLMENT: Add current cropped face to gallery (embedding) ---
 setEmbBtn.onclick = async () => {
+    if (!uploadedImg.src) return;
+    if (Math.abs(cropRect.w) < 10) return;
     setEmbBtn.disabled = true;
-
+    
     const realX = cropRect.w < 0 ? cropRect.x + cropRect.w : cropRect.x;
     const realY = cropRect.h < 0 ? cropRect.y + cropRect.h : cropRect.y;
     const side = Math.abs(cropRect.w);
-
+    if (side < 8) return;
+    
+    // create thumbnail for enrolled preview
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = 50;
+    thumbCanvas.height = 50;
+    const thumbCtxLocal = thumbCanvas.getContext('2d');
+    thumbCtxLocal.drawImage(uploadedImg, realX, realY, side, side, 0, 0, 50, 50);
+    const thumbDataUrl = thumbCanvas.toDataURL();
+    
+    // prepare input tensor for model
+    offscreenCtx.clearRect(0, 0, INPUT_SIZE, INPUT_SIZE);
     offscreenCtx.drawImage(uploadedImg, realX, realY, side, side, 0, 0, INPUT_SIZE, INPUT_SIZE);
-    thumbCtx.drawImage(offscreenCanvas, 0, 0, 60, 60);
-
-    const url = "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors";
-    const res = await fetch(url);
-
-    const contentLength = res.headers.get("Content-Length");
-    const total = contentLength ? parseInt(contentLength, 10) : 0;
-
-    const reader = res.body.getReader();
-    let received = 0;
-    const chunks = [];
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        chunks.push(value);
-        received += value.length;
-
-        if (total) {
-            const percent = Math.round((received / total) * 100);
-            setEmbBtn.textContent = `Loading ${percent}%`;
-        } else {
-            setEmbBtn.textContent = `Loading ${Math.round(received / 1024)} KB`;
+    const input = getInputTensor(offscreenCtx);
+    
+    // load model if not loaded yet
+    if (!net) {
+        if (isLoadingModel) {
+            multiStatus.innerText = "Model loading already in progress, please wait...";
+            setEmbBtn.disabled = false;
+            return;
+        }
+        isLoadingModel = true;
+        setEmbBtn.textContent = "Loading model...";
+        const url = "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors";
+        try {
+            const res = await fetch(url);
+            const contentLength = res.headers.get("Content-Length");
+            const total = contentLength ? parseInt(contentLength, 10) : 0;
+            const reader = res.body.getReader();
+            let received = 0;
+            const chunks = [];
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                received += value.length;
+                if (total) {
+                    const percent = Math.round((received / total) * 100);
+                    setEmbBtn.textContent = `Loading ${percent}%`;
+                } else {
+                    setEmbBtn.textContent = `Loading ${Math.round(received / 1024)} KB`;
+                }
+            }
+            const blob = new Blob(chunks);
+            const blobUrl = URL.createObjectURL(blob);
+            const device = await getDevice();
+            net = await ADAFACE.load(device, blobUrl);
+            URL.revokeObjectURL(blobUrl);
+            isLoadingModel = false;
+            setEmbBtn.textContent = "Add Enrolled Face";
+        } catch(err) {
+            console.error(err);
+            multiStatus.innerText = "Model load failed: " + err;
+            isLoadingModel = false;
+            setEmbBtn.disabled = false;
+            return;
         }
     }
-
-    const blob = new Blob(chunks);
-    const blobUrl = URL.createObjectURL(blob);
-
-    const device = await getDevice();
-    net = await ADAFACE.load(device, blobUrl);
-
-    URL.revokeObjectURL(blobUrl);
-
-    setEmbBtn.textContent = "Processing...";
-
-    const input = getInputTensor(offscreenCtx);
+    
+    setEmbBtn.textContent = "Computing...";
     const out = await net(input);
-    dynamicEmbArray.push(out[0]);
-
-    if (setupStream) setupStream.getTracks().forEach(t => t.stop());
-    setupUI.style.display = 'none';
-
-    const runStream = await navigator.mediaDevices.getUserMedia({ video: true });
-    video.srcObject = runStream;
-    requestAnimationFrame(processFrame);
+    const embedding = new Float32Array(out[0]);
+    
+    // add to enrolled list
+    enrolledEmbeddings.push({
+        emb: embedding,
+        thumbDataUrl: thumbDataUrl,
+        cropRectInfo: { x: realX, y: realY, side: side }
+    });
+    updateEnrolledGallery();
+    
+    // move to next pending file
+    if (currentUploadedFileIndex < pendingFiles.length - 1) {
+        currentUploadedFileIndex++;
+        loadFileByIndex(currentUploadedFileIndex);
+        multiStatus.innerText = `Enrolled! Next image ${currentUploadedFileIndex+1}/${pendingFiles.length}`;
+        cropRect = { x: 0, y: 0, w: 0, h: 0 };
+        setEmbBtn.disabled = true;
+    } else if (currentUploadedFileIndex === pendingFiles.length - 1) {
+        // finished all pending
+        multiStatus.innerText = `Enrolled face from last image. Total enrolled: ${enrolledEmbeddings.length}. You can add more or start recognition.`;
+        setEmbBtn.disabled = true;
+        // after finishing enrollment, we can start live camera recognition
+        if (setupStream) {
+            setupStream.getTracks().forEach(t => t.stop());
+        }
+        setupUI.style.display = 'none';
+        const runStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = runStream;
+        requestAnimationFrame(processFrame);
+    } else {
+        // no pending files, just keep current
+        setEmbBtn.disabled = true;
+        multiStatus.innerText = `Face enrolled. Total: ${enrolledEmbeddings.length}`;
+        if (enrolledEmbeddings.length > 0 && setupUI.style.display !== 'none') {
+            // optionally close setup if user wants recognition
+            // but we keep open for more files, but user might press clear or add more.
+        }
+    }
+    setEmbBtn.textContent = "Add Enrolled Face";
 };
 
-async function processFrame() {
-    if (video.videoWidth === 0) return requestAnimationFrame(processFrame);
+function updateEnrolledGallery() {
+    enrollCountSpan.innerText = enrolledEmbeddings.length;
+    enrolledGalleryDiv.innerHTML = '';
+    for (let idx = 0; idx < enrolledEmbeddings.length; idx++) {
+        const item = enrolledEmbeddings[idx];
+        const div = document.createElement('div');
+        div.className = 'enrolled-thumb';
+        const canvas = document.createElement('canvas');
+        canvas.width = 45;
+        canvas.height = 45;
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        img.onload = () => {
+            ctx.drawImage(img, 0, 0, 45, 45);
+        };
+        img.src = item.thumbDataUrl;
+        const span = document.createElement('span');
+        span.innerText = `#${idx+1}`;
+        const removeBtn = document.createElement('button');
+        removeBtn.innerText = '✖';
+        removeBtn.className = 'remove-btn';
+        removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            enrolledEmbeddings.splice(idx, 1);
+            updateEnrolledGallery();
+            if (enrolledEmbeddings.length === 0 && setupUI.style.display === 'none') {
+                // re-show setup UI if needed
+            }
+        };
+        div.appendChild(canvas);
+        div.appendChild(span);
+        div.appendChild(removeBtn);
+        enrolledGalleryDiv.appendChild(div);
+    }
+}
 
+// --- LIVE RECOGNITION ---
+async function processFrame() {
+    if (!video.videoWidth || video.videoWidth === 0) {
+        requestAnimationFrame(processFrame);
+        return;
+    }
+    if (!net || enrolledEmbeddings.length === 0) {
+        // show waiting for enrollment
+        overlay.width = video.clientWidth;
+        overlay.height = video.clientHeight;
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+        overlayCtx.font = "16px monospace";
+        overlayCtx.fillStyle = "yellow";
+        overlayCtx.shadowBlur = 0;
+        overlayCtx.fillText("No enrolled faces. Add faces via upload.", 20, 40);
+        requestAnimationFrame(processFrame);
+        return;
+    }
+    
     overlay.width = video.clientWidth;
     overlay.height = video.clientHeight;
     overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
-
+    
     const squareSize = Math.min(overlay.width, overlay.height) * 0.5;
     const squareX = (overlay.width - squareSize) / 2;
     const squareY = (overlay.height - squareSize) / 2;
     overlayCtx.strokeStyle = 'cyan';
+    overlayCtx.lineWidth = 2;
     overlayCtx.strokeRect(squareX, squareY, squareSize, squareSize);
-
+    
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     const cropSize = Math.min(vw, vh) * 0.5;
     const sx = (vw - cropSize) / 2;
     const sy = (vh - cropSize) / 2;
-
+    
     offscreenCtx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, INPUT_SIZE, INPUT_SIZE);
-
     const input = getInputTensor(offscreenCtx);
     const out = await net(input);
+    const queryEmb = out[0];
     
-    let sim = 0;
-    for (let i = 0; i < dynamicEmbArray[0].length; i++) sim += dynamicEmbArray[0][i] * out[0][i];
-    if (sim < 0) sim = 0;
-    outputEl.textContent = `Similarity: ${Math.round(sim.toFixed(4) * 100)}%`;
-    outputEl.style.color = sim > 0.4 ? 'lime' : '#ff4444';
-
+    const similarities = [];
+    for (let i = 0; i < enrolledEmbeddings.length; i++) {
+        let sim = 0;
+        const enrolledEmb = enrolledEmbeddings[i].emb;
+        for (let j = 0; j < queryEmb.length; j++) sim += enrolledEmb[j] * queryEmb[j];
+        similarities.push(sim);
+    }
+    
+    let allSimsText = '';
+    let bestSim = -1;
+    for (let i = 0; i < similarities.length; i++) {
+        const sim = similarities[i];
+        const percent = Math.min(99, Math.max(0, Math.round(sim * 100)));
+        allSimsText += `#${i+1}: ${percent}% `;
+        if (sim > bestSim) bestSim = sim;
+    }
+    if (bestSim < 0) bestSim = 0;
+    const bestPercent = Math.min(99, Math.round(bestSim * 100));
+    outputEl.innerHTML = `[${allSimsText}] | Best: ${bestPercent}% (${enrolledEmbeddings.length} enrolled)`;
+    outputEl.style.color = bestSim > 0.45 ? 'lime' : (bestSim > 0.3 ? '#ffaa44' : '#ff4444');
+    
+    // also show thumbnail of best match? optionally show
+    if (bestSim > 0.3 && enrolledEmbeddings.length > 0) {
+        // find best idx
+        let bestIdx = 0;
+        let bestVal = -1;
+        for (let i=0; i<enrolledEmbeddings.length; i++) {
+            let sim = 0;
+            for(let j=0;j<queryEmb.length;j++) sim += enrolledEmbeddings[i].emb[j] * queryEmb[j];
+            if(sim > bestVal) { bestVal = sim; bestIdx = i; }
+        }
+        const bestThumb = new Image();
+        bestThumb.src = enrolledEmbeddings[bestIdx].thumbDataUrl;
+        thumbCtx.drawImage(bestThumb, 0, 0, 60, 60);
+    } else {
+        thumbCtx.fillStyle = "#222";
+        thumbCtx.fillRect(0,0,60,60);
+        thumbCtx.fillStyle = "gray";
+        thumbCtx.font = "10px monospace";
+        thumbCtx.fillText("?", 25, 30);
+    }
+    
     requestAnimationFrame(processFrame);
 }
+
+// --- CLEAR ALL ENROLLMENTS ---
+clearEnrollBtn.onclick = () => {
+    enrolledEmbeddings = [];
+    updateEnrolledGallery();
+    multiStatus.innerText = "All enrolled faces cleared. You can upload images again.";
+    if (setupUI.style.display === 'none') {
+        // if recognition running, show warning
+        outputEl.innerHTML = "No enrolled faces. Please add faces.";
+    }
+    thumbCtx.fillStyle = "#111";
+    thumbCtx.fillRect(0,0,60,60);
+};
 
 function getInputTensor(ctx) {
     const imgData = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
@@ -371,6 +654,14 @@ async function getDevice() {
     const adapter = await navigator.gpu.requestAdapter();
     return await adapter.requestDevice();
 }
+
+// small helper to manually load after clear
+window.loadNextManually = function() {
+    if (currentUploadedFileIndex + 1 < pendingFiles.length) {
+        currentUploadedFileIndex++;
+        loadFileByIndex(currentUploadedFileIndex);
+    }
+};
 </script>
 </body>
 </html>
