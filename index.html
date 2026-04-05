@@ -178,6 +178,7 @@
 </div>
 
 <script>
+let modelLoadingPromise = null;
 const INPUT_SIZE = 112;
 let net = null;
 let enrolledEmbeddings = []; // store { emb: Float32Array, thumbDataUrl: string, cropInfo: object }
@@ -218,15 +219,63 @@ window.onload = async () => {
         video.srcObject = setupStream;
         outputEl.textContent = "Ready. Upload images or capture.";
         startPreviewLoop();
-        // Initially no live feed cropping, but preview shows camera; but we only crop from uploaded images.
-        isUsingLiveFeed = false; // we will only process uploaded images
+        isUsingLiveFeed = false;
         document.getElementById('cropInst').style.display = 'block';
         multiStatus.innerText = "Upload multiple images, drag square on each face → 'Add Enrolled Face'";
+        
+        // Load model on launch
+        loadModelOnLaunch();
     } catch (e) {
         outputEl.textContent = "Error: Camera access denied.";
         alert("Please allow camera access.");
     }
 };
+
+function loadModelOnLaunch() {
+    if (modelLoadingPromise) return modelLoadingPromise;
+    
+    modelLoadingPromise = (async () => {
+        multiStatus.innerText = "Loading model... 0%";
+        const url = "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors";
+        try {
+            const res = await fetch(url);
+            const contentLength = res.headers.get("Content-Length");
+            const total = contentLength ? parseInt(contentLength, 10) : 0;
+            const reader = res.body.getReader();
+            let received = 0;
+            const chunks = [];
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                received += value.length;
+                if (total) {
+                    const percent = Math.round((received / total) * 100);
+                    multiStatus.innerText = `Loading model... ${percent}%`;
+                    setEmbBtn.textContent = `Loading ${percent}%`;
+                } else {
+                    const kb = Math.round(received / 1024);
+                    multiStatus.innerText = `Loading model... ${kb} KB`;
+                    setEmbBtn.textContent = `Loading ${kb} KB`;
+                }
+            }
+            const blob = new Blob(chunks);
+            const blobUrl = URL.createObjectURL(blob);
+            const device = await getDevice();
+            net = await ADAFACE.load(device, blobUrl);
+            URL.revokeObjectURL(blobUrl);
+            multiStatus.innerText = "Model loaded! Ready to enroll faces.";
+            setEmbBtn.textContent = "Add Enrolled Face";
+        } catch(err) {
+            console.error(err);
+            multiStatus.innerText = "Model load failed: " + err;
+            setEmbBtn.textContent = "Add Enrolled Face";
+            throw err;
+        }
+    })();
+    
+    return modelLoadingPromise;
+}
 
 function startPreviewLoop() {
     const preview = () => {
@@ -396,12 +445,24 @@ setEmbBtn.onclick = async () => {
     if (Math.abs(cropRect.w) < 10) return;
     setEmbBtn.disabled = true;
     
+    // Wait for model to be loaded if not already
+    if (!net) {
+        if (modelLoadingPromise) {
+            multiStatus.innerText = "Waiting for model to load...";
+            await modelLoadingPromise;
+        } else {
+            await loadModelOnLaunch();
+        }
+    }
+    
     const realX = cropRect.w < 0 ? cropRect.x + cropRect.w : cropRect.x;
     const realY = cropRect.h < 0 ? cropRect.y + cropRect.h : cropRect.y;
     const side = Math.abs(cropRect.w);
-    if (side < 8) return;
+    if (side < 8) {
+        setEmbBtn.disabled = false;
+        return;
+    }
     
-    // create thumbnail for enrolled preview
     const thumbCanvas = document.createElement('canvas');
     thumbCanvas.width = 50;
     thumbCanvas.height = 50;
@@ -409,61 +470,14 @@ setEmbBtn.onclick = async () => {
     thumbCtxLocal.drawImage(uploadedImg, realX, realY, side, side, 0, 0, 50, 50);
     const thumbDataUrl = thumbCanvas.toDataURL();
     
-    // prepare input tensor for model
     offscreenCtx.clearRect(0, 0, INPUT_SIZE, INPUT_SIZE);
     offscreenCtx.drawImage(uploadedImg, realX, realY, side, side, 0, 0, INPUT_SIZE, INPUT_SIZE);
     const input = getInputTensor(offscreenCtx);
-    
-    // load model if not loaded yet
-    if (!net) {
-        if (isLoadingModel) {
-            multiStatus.innerText = "Model loading already in progress, please wait...";
-            setEmbBtn.disabled = false;
-            return;
-        }
-        isLoadingModel = true;
-        setEmbBtn.textContent = "Loading model...";
-        const url = "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors";
-        try {
-            const res = await fetch(url);
-            const contentLength = res.headers.get("Content-Length");
-            const total = contentLength ? parseInt(contentLength, 10) : 0;
-            const reader = res.body.getReader();
-            let received = 0;
-            const chunks = [];
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                chunks.push(value);
-                received += value.length;
-                if (total) {
-                    const percent = Math.round((received / total) * 100);
-                    setEmbBtn.textContent = `Loading ${percent}%`;
-                } else {
-                    setEmbBtn.textContent = `Loading ${Math.round(received / 1024)} KB`;
-                }
-            }
-            const blob = new Blob(chunks);
-            const blobUrl = URL.createObjectURL(blob);
-            const device = await getDevice();
-            net = await ADAFACE.load(device, blobUrl);
-            URL.revokeObjectURL(blobUrl);
-            isLoadingModel = false;
-            setEmbBtn.textContent = "Add Enrolled Face";
-        } catch(err) {
-            console.error(err);
-            multiStatus.innerText = "Model load failed: " + err;
-            isLoadingModel = false;
-            setEmbBtn.disabled = false;
-            return;
-        }
-    }
     
     setEmbBtn.textContent = "Computing...";
     const out = await net(input);
     const embedding = new Float32Array(out[0]);
     
-    // add to enrolled list
     enrolledEmbeddings.push({
         emb: embedding,
         thumbDataUrl: thumbDataUrl,
@@ -471,7 +485,6 @@ setEmbBtn.onclick = async () => {
     });
     updateEnrolledGallery();
     
-    // move to next pending file
     if (currentUploadedFileIndex < pendingFiles.length - 1) {
         currentUploadedFileIndex++;
         loadFileByIndex(currentUploadedFileIndex);
@@ -479,10 +492,8 @@ setEmbBtn.onclick = async () => {
         cropRect = { x: 0, y: 0, w: 0, h: 0 };
         setEmbBtn.disabled = true;
     } else if (currentUploadedFileIndex === pendingFiles.length - 1) {
-        // finished all pending
         multiStatus.innerText = `Enrolled face from last image. Total enrolled: ${enrolledEmbeddings.length}. You can add more or start recognition.`;
         setEmbBtn.disabled = true;
-        // after finishing enrollment, we can start live camera recognition
         if (setupStream) {
             setupStream.getTracks().forEach(t => t.stop());
         }
@@ -491,13 +502,8 @@ setEmbBtn.onclick = async () => {
         video.srcObject = runStream;
         requestAnimationFrame(processFrame);
     } else {
-        // no pending files, just keep current
         setEmbBtn.disabled = true;
         multiStatus.innerText = `Face enrolled. Total: ${enrolledEmbeddings.length}`;
-        if (enrolledEmbeddings.length > 0 && setupUI.style.display !== 'none') {
-            // optionally close setup if user wants recognition
-            // but we keep open for more files, but user might press clear or add more.
-        }
     }
     setEmbBtn.textContent = "Add Enrolled Face";
 };
@@ -630,7 +636,7 @@ async function processFrame() {
     outputEl.style.color = bestSim > 0.45 ? 'lime' : (bestSim > 0.3 ? '#ffaa44' : '#ff4444');
     
     // show best match thumbnail
-    if (bestSim > 0.3 && enrolledEmbeddings.length > 0) {
+    if (bestSim > 0.2 && enrolledEmbeddings.length > 0) {
         const bestThumb = new Image();
         bestThumb.src = enrolledEmbeddings[bestIdx].thumbDataUrl;
         thumbCtx.drawImage(bestThumb, 0, 0, 60, 60);
