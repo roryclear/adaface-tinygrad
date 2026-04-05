@@ -212,7 +212,6 @@ offscreenCanvas.height = INPUT_SIZE;
 const offscreenCtx = offscreenCanvas.getContext('2d');
 const thumbCtx = document.getElementById('thumb').getContext('2d');
 
-// --- INIT camera but keep UI visible for multi upload ---
 window.onload = async () => {
     try {
         setupStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -223,7 +222,6 @@ window.onload = async () => {
         document.getElementById('cropInst').style.display = 'block';
         multiStatus.innerText = "Upload multiple images, drag square on each face → 'Add Face'";
         
-        // Load model on launch
         loadModelOnLaunch();
     } catch (e) {
         outputEl.textContent = "Error: Camera access denied.";
@@ -264,7 +262,7 @@ function loadModelOnLaunch() {
             const device = await getDevice();
             net = await ADAFACE.load(device, blobUrl);
             URL.revokeObjectURL(blobUrl);
-            multiStatus.innerText = "Model loaded! Ready to enroll faces.";
+            multiStatus.innerText = "Model loaded! Ready to add faces.";
             setEmbBtn.textContent = "Add Face";
         } catch(err) {
             console.error(err);
@@ -279,24 +277,19 @@ function loadModelOnLaunch() {
 
 function startPreviewLoop() {
     const preview = () => {
-        // only show camera preview if we are not in cropping mode? Actually keep camera feed on cropCanvas when no upload
         if (video.videoWidth > 0 && !isUsingLiveFeed && !uploadedImg.src) {
-            // If no uploaded image shown, show camera feed in cropCanvas (for convenience)
             cropCanvas.width = video.videoWidth;
             cropCanvas.height = video.videoHeight;
             ctxCrop.save();
             ctxCrop.scale(-1, 1);
             ctxCrop.drawImage(video, -cropCanvas.width, 0);
             ctxCrop.restore();
-        } else if (uploadedImg.src && !isUsingLiveFeed) {
-            // keep uploaded image displayed
         }
         requestAnimationFrame(preview);
     };
     preview();
 }
 
-// --- MULTI FILE HANDLING ---
 fileInput.onchange = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -335,7 +328,6 @@ function loadNextFileForCrop() {
     reader.readAsDataURL(file);
 }
 
-// --- SNAP (capture from camera) also adds to queue: capture as new image ---
 snapBtn.onclick = () => {
     if (!video.videoWidth) return;
     const captureCanvas = document.createElement('canvas');
@@ -381,7 +373,6 @@ function loadFileByIndex(index) {
     reader.readAsDataURL(file);
 }
 
-// --- CROP INTERACTION ---
 function getCanvasCoords(e) {
     const rect = cropCanvas.getBoundingClientRect();
     let clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -439,13 +430,11 @@ cropCanvas.addEventListener('touchstart', startCrop, { passive: false });
 cropCanvas.addEventListener('touchmove', moveCrop, { passive: false });
 cropCanvas.addEventListener('touchend', endCrop);
 
-// --- ENROLLMENT: Add current cropped face to gallery (embedding) ---
 setEmbBtn.onclick = async () => {
     if (!uploadedImg.src) return;
     if (Math.abs(cropRect.w) < 10) return;
     setEmbBtn.disabled = true;
     
-    // Wait for model to be loaded if not already
     if (!net) {
         if (modelLoadingPromise) {
             multiStatus.innerText = "Waiting for model to load...";
@@ -488,11 +477,11 @@ setEmbBtn.onclick = async () => {
     if (currentUploadedFileIndex < pendingFiles.length - 1) {
         currentUploadedFileIndex++;
         loadFileByIndex(currentUploadedFileIndex);
-        multiStatus.innerText = `Enrolled! Next image ${currentUploadedFileIndex+1}/${pendingFiles.length}`;
+        multiStatus.innerText = `Added, next image ${currentUploadedFileIndex+1}/${pendingFiles.length}`;
         cropRect = { x: 0, y: 0, w: 0, h: 0 };
         setEmbBtn.disabled = true;
     } else if (currentUploadedFileIndex === pendingFiles.length - 1) {
-        multiStatus.innerText = `Enrolled face from last image. Total enrolled: ${embeddings.length}. You can add more or start recognition.`;
+        multiStatus.innerText = `added face from last image. Faces: ${embeddings.length}.`;
         setEmbBtn.disabled = true;
         if (setupStream) {
             setupStream.getTracks().forEach(t => t.stop());
@@ -503,7 +492,7 @@ setEmbBtn.onclick = async () => {
         requestAnimationFrame(processFrame);
     } else {
         setEmbBtn.disabled = true;
-        multiStatus.innerText = `Face enrolled. Total: ${embeddings.length}`;
+        multiStatus.innerText = `Face added. Total: ${embeddings.length}`;
     }
     setEmbBtn.textContent = "Add Face";
 };
@@ -540,9 +529,6 @@ function updateGallery() {
             e.stopPropagation();
             embeddings.splice(idx, 1);
             updateGallery();
-            if (embeddings.length === 0 && setupUI.style.display === 'none') {
-                // re-show setup UI if needed
-            }
         };
         div.appendChild(canvas);
         div.appendChild(span);
@@ -552,7 +538,6 @@ function updateGallery() {
     }
 }
 
-// --- LIVE RECOGNITION ---
 async function processFrame() {
     if (!video.videoWidth || video.videoWidth === 0) {
         requestAnimationFrame(processFrame);
@@ -611,7 +596,6 @@ async function processFrame() {
     if (bestSim < 0) bestSim = 0;
     const bestPercent = Math.min(99, Math.round(bestSim * 100));
     
-    // Update each thumbnail in gallery with its similarity percentage
     const galleryItems = document.querySelectorAll('.face-thumb');
     for (let i = 0; i < galleryItems.length && i < similarities.length; i++) {
         const sim = similarities[i];
