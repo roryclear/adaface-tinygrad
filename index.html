@@ -520,6 +520,13 @@ function updateEnrolledGallery() {
         img.src = item.thumbDataUrl;
         const span = document.createElement('span');
         span.innerText = `#${idx+1}`;
+        const percentSpan = document.createElement('span');
+        percentSpan.className = 'sim-percent';
+        percentSpan.innerText = '--%';
+        percentSpan.style.fontSize = '10px';
+        percentSpan.style.display = 'block';
+        percentSpan.style.fontWeight = 'bold';
+        percentSpan.style.marginTop = '2px';
         const removeBtn = document.createElement('button');
         removeBtn.innerText = '✖';
         removeBtn.className = 'remove-btn';
@@ -533,6 +540,7 @@ function updateEnrolledGallery() {
         };
         div.appendChild(canvas);
         div.appendChild(span);
+        div.appendChild(percentSpan);
         div.appendChild(removeBtn);
         enrolledGalleryDiv.appendChild(div);
     }
@@ -545,7 +553,6 @@ async function processFrame() {
         return;
     }
     if (!net || enrolledEmbeddings.length === 0) {
-        // show waiting for enrollment
         overlay.width = video.clientWidth;
         overlay.height = video.clientHeight;
         overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
@@ -587,29 +594,43 @@ async function processFrame() {
         similarities.push(sim);
     }
     
-    let allSimsText = '';
     let bestSim = -1;
+    let bestIdx = 0;
     for (let i = 0; i < similarities.length; i++) {
-        const sim = similarities[i];
-        const percent = Math.min(99, Math.max(0, Math.round(sim * 100)));
-        allSimsText += `#${i+1}: ${percent}% `;
-        if (sim > bestSim) bestSim = sim;
+        if (similarities[i] > bestSim) {
+            bestSim = similarities[i];
+            bestIdx = i;
+        }
     }
     if (bestSim < 0) bestSim = 0;
     const bestPercent = Math.min(99, Math.round(bestSim * 100));
-    outputEl.innerHTML = `[${allSimsText}] | Best: ${bestPercent}% (${enrolledEmbeddings.length} enrolled)`;
+    
+    // Update each thumbnail in gallery with its similarity percentage
+    const galleryItems = document.querySelectorAll('.enrolled-thumb');
+    for (let i = 0; i < galleryItems.length && i < similarities.length; i++) {
+        const sim = similarities[i];
+        const percent = Math.min(99, Math.max(0, Math.round(sim * 100)));
+        let percentSpan = galleryItems[i].querySelector('.sim-percent');
+        if (!percentSpan) {
+            percentSpan = document.createElement('span');
+            percentSpan.className = 'sim-percent';
+            percentSpan.style.fontSize = '10px';
+            percentSpan.style.display = 'block';
+            percentSpan.style.fontWeight = 'bold';
+            percentSpan.style.marginTop = '2px';
+            // Insert before the remove button
+            const removeBtn = galleryItems[i].querySelector('.remove-btn');
+            galleryItems[i].insertBefore(percentSpan, removeBtn);
+        }
+        percentSpan.innerText = `${percent}%`;
+        percentSpan.style.color = sim > 0.45 ? '#0f0' : (sim > 0.3 ? '#fa0' : '#f44');
+    }
+    
+    outputEl.innerHTML = `Best match: ${bestPercent}% (${enrolledEmbeddings.length} enrolled)`;
     outputEl.style.color = bestSim > 0.45 ? 'lime' : (bestSim > 0.3 ? '#ffaa44' : '#ff4444');
     
-    // also show thumbnail of best match? optionally show
+    // show best match thumbnail
     if (bestSim > 0.3 && enrolledEmbeddings.length > 0) {
-        // find best idx
-        let bestIdx = 0;
-        let bestVal = -1;
-        for (let i=0; i<enrolledEmbeddings.length; i++) {
-            let sim = 0;
-            for(let j=0;j<queryEmb.length;j++) sim += enrolledEmbeddings[i].emb[j] * queryEmb[j];
-            if(sim > bestVal) { bestVal = sim; bestIdx = i; }
-        }
         const bestThumb = new Image();
         bestThumb.src = enrolledEmbeddings[bestIdx].thumbDataUrl;
         thumbCtx.drawImage(bestThumb, 0, 0, 60, 60);
