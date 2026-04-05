@@ -347,7 +347,7 @@ async function processFrame() {
     
     let sim = 0;
     for (let i = 0; i < dynamicEmbArray[0].length; i++) sim += dynamicEmbArray[0][i] * out[0][i];
-
+    if (sim < 0) sim = 0;
     outputEl.textContent = `Similarity: ${Math.round(sim.toFixed(4) * 100)}%`;
     outputEl.style.color = sim > 0.4 ? 'lime' : '#ff4444';
 
