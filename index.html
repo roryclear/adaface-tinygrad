@@ -126,7 +126,7 @@
 <script>
 const INPUT_SIZE = 112;
 let net = null;
-let dynamicEmb = null;
+let dynamicEmbArray = [];
 let setupStream = null;
 let isDragging = false;
 let isUsingLiveFeed = true;
@@ -311,7 +311,7 @@ setEmbBtn.onclick = async () => {
 
     const input = getInputTensor(offscreenCtx);
     const out = await net(input);
-    dynamicEmb = out[0];
+    dynamicEmbArray.push(out[0]);
 
     if (setupStream) setupStream.getTracks().forEach(t => t.stop());
     setupUI.style.display = 'none';
@@ -346,7 +346,7 @@ async function processFrame() {
     const out = await net(input);
     
     let sim = 0;
-    for (let i = 0; i < dynamicEmb.length; i++) sim += dynamicEmb[i] * out[0][i];
+    for (let i = 0; i < dynamicEmbArray[0].length; i++) sim += dynamicEmbArray[0][i] * out[0][i];
 
     outputEl.textContent = `Similarity: ${Math.round(sim.toFixed(4) * 100)}%`;
     outputEl.style.color = sim > 0.4 ? 'lime' : '#ff4444';
