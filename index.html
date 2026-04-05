@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AdaFace WebGPU</title>
+    <title>AdaFace tinygrad WebGPU</title>
     <script type="module">
         import ADAFACE from "./net.js";
         window.ADAFACE = ADAFACE;
@@ -135,8 +135,6 @@
 <body>
 
 <div id="setupUI">
-    <h3 style="margin:4px 0;">AdaFace tinygrad</h3>
-
     <canvas id="cropCanvas"></canvas>
 
     <div class="controls">
@@ -145,10 +143,7 @@
         <button id="setEmbBtn" disabled>Add Face</button>
     </div>
 
-    <p id="cropInst" style="display:none; font-size: 11px; color: #0f0;">
-        Drag square over face, then click "Add Face"
-    </p>
-    <div id="multiStatus">Upload multiple images, crop each face → add to gallery</div>
+    <div id="multiStatus">Upload images or take face photo.</div>
 </div>
 
 <video id="video" autoplay muted playsinline></video>
@@ -188,7 +183,6 @@ const fileInput = document.getElementById('fileInput');
 const setEmbBtn = document.getElementById('setEmbBtn');
 const snapBtn = document.getElementById('snapBtn');
 const faceGalleryDiv = document.getElementById('faceGallery');
-const multiStatus = document.getElementById('multiStatus');
 
 const offscreenCanvas = document.createElement('canvas');
 offscreenCanvas.width = INPUT_SIZE;
@@ -203,8 +197,6 @@ window.onload = async () => {
         outputEl.textContent = "Ready. Upload images or capture.";
         startPreviewLoop();
         isUsingLiveFeed = false;
-        document.getElementById('cropInst').style.display = 'block';
-        multiStatus.innerText = "Upload multiple images, drag square on each face → 'Add Face'";
         
         loadModelOnLaunch();
     } catch (e) {
@@ -217,7 +209,6 @@ function loadModelOnLaunch() {
     if (modelLoadingPromise) return modelLoadingPromise;
     
     modelLoadingPromise = (async () => {
-        multiStatus.innerText = "Loading model... 0%";
         const url = "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors";
         try {
             const res = await fetch(url);
@@ -231,26 +222,17 @@ function loadModelOnLaunch() {
                 if (done) break;
                 chunks.push(value);
                 received += value.length;
-                if (total) {
-                    const percent = Math.round((received / total) * 100);
-                    multiStatus.innerText = `Loading model... ${percent}%`;
-                    setEmbBtn.textContent = `Loading ${percent}%`;
-                } else {
-                    const kb = Math.round(received / 1024);
-                    multiStatus.innerText = `Loading model... ${kb} KB`;
-                    setEmbBtn.textContent = `Loading ${kb} KB`;
-                }
+                const percent = Math.round((received / total) * 100);
+                setEmbBtn.textContent = `Loading model ${percent}%`;
             }
             const blob = new Blob(chunks);
             const blobUrl = URL.createObjectURL(blob);
             const device = await getDevice();
             net = await ADAFACE.load(device, blobUrl);
             URL.revokeObjectURL(blobUrl);
-            multiStatus.innerText = "Model loaded! Ready to add faces.";
             setEmbBtn.textContent = "Add Face";
         } catch(err) {
             console.error(err);
-            multiStatus.innerText = "Model load failed: " + err;
             setEmbBtn.textContent = "Add Face";
             throw err;
         }
@@ -280,7 +262,6 @@ fileInput.onchange = async (e) => {
     pendingFiles = files;
     currentUploadedFileIndex = 0;
     isUsingLiveFeed = false;
-    document.getElementById('cropInst').style.display = 'block';
     multiStatus.innerText = `Loaded ${files.length} images. Crop face on each and click 'Add Face'.`;
     loadNextFileForCrop();
 };
