@@ -1,5 +1,5 @@
 tinygrad implementation of: AdaFace (adaface_ir50_ms1mv2)
-![webgpu page](sample.jpg)
+![webgpu page](sample.png)
 
 ## Setup:
 ```
