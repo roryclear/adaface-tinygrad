@@ -155,7 +155,6 @@
         <button id="snapBtn">Capture</button>
         <input type="file" id="fileInput" accept="image/*" multiple>
         <button id="setEmbBtn" disabled>Add Face</button>
-        <button id="clearBtn" style="background:#331100;">Clear All</button>
     </div>
 
     <p id="cropInst" style="display:none; font-size: 11px; color: #0f0;">
@@ -201,7 +200,6 @@ const ctxCrop = cropCanvas.getContext('2d');
 const fileInput = document.getElementById('fileInput');
 const setEmbBtn = document.getElementById('setEmbBtn');
 const snapBtn = document.getElementById('snapBtn');
-const clearBtn = document.getElementById('clearBtn');
 const countSpan = document.getElementById('faceCount');
 const faceGalleryDiv = document.getElementById('faceGallery');
 const multiStatus = document.getElementById('multiStatus');
@@ -634,16 +632,6 @@ async function processFrame() {
     requestAnimationFrame(processFrame);
 }
 
-clearBtn.onclick = () => {
-    embeddings = [];
-    updateGallery();
-    multiStatus.innerText = "All Faces cleared. You can upload images again.";
-    if (setupUI.style.display === 'none') {
-        outputEl.innerHTML = "No Faces. Please add faces.";
-    }
-    thumbCtx.fillStyle = "#111";
-    thumbCtx.fillRect(0,0,60,60);
-};
 
 function getInputTensor(ctx) {
     const imgData = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
