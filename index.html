@@ -260,10 +260,17 @@ function startPreviewLoop() {
 }
 
 fileInput.onchange = async (e) => {
+
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
-    pendingFiles = files;
-    currentUploadedFileIndex = 0;
+    pendingFiles.push(...files);
+    if (currentUploadedFileIndex === -1 || currentUploadedFileIndex >= pendingFiles.length - files.length) {
+        currentUploadedFileIndex = pendingFiles.length - files.length;
+        loadFileByIndex(currentUploadedFileIndex);
+    }
+
+    multiStatus.innerText = `Added ${files.length} images. Total: ${pendingFiles.length}. Crop and click 'Add Face'.`;
+
     isUsingLiveFeed = false;
     multiStatus.innerText = `Loaded ${files.length} images. Crop face on each and click 'Add Face'.`;
     loadNextFileForCrop();
@@ -577,7 +584,7 @@ async function processFrame() {
         percentSpan.style.color = sim > 0.45 ? '#0f0' : (sim > 0.3 ? '#fa0' : '#f44');
     }
     
-    outputEl.innerHTML = `Best match: ${bestPercent}% (${embeddings.length} faces)`;
+    outputEl.innerHTML = `Best match: ${bestPercent}%`;
     outputEl.style.color = bestSim > 0.45 ? 'lime' : (bestSim > 0.3 ? '#ffaa44' : '#ff4444');
     
 
