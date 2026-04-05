@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AdaFace WebGPU - Multi Enrollment</title>
+    <title>AdaFace WebGPU</title>
     <script type="module">
         import ADAFACE from "./net.js";
         window.ADAFACE = ADAFACE;
@@ -46,7 +46,7 @@
             overflow-y: auto;
             min-width: 220px;
         }
-        .enrolled-thumb {
+        .face-thumb {
             display: inline-block;
             margin: 4px;
             text-align: center;
@@ -56,16 +56,16 @@
             border-radius: 4px;
             border: 1px solid #333;
         }
-        .enrolled-thumb canvas {
+        .face-thumb canvas {
             display: block;
             margin-bottom: 2px;
             border: 1px solid #555;
         }
-        .enrolled-thumb span {
+        .face-thumb span {
             font-size: 10px;
             color: #ccc;
         }
-        .enrolled-thumb .remove-btn {
+        .face-thumb .remove-btn {
             background: #660000;
             border: none;
             color: white;
@@ -134,7 +134,7 @@
             margin: 5px 0;
             text-align: center;
         }
-        .enrolled-list {
+        .face-list {
             margin-top: 8px;
             border-top: 1px solid #333;
             padding-top: 5px;
@@ -147,19 +147,19 @@
 <body>
 
 <div id="setupUI">
-    <h3 style="margin:4px 0;">AdaFace tinygrad - Multi Enroll</h3>
+    <h3 style="margin:4px 0;">AdaFace tinygrad</h3>
 
     <canvas id="cropCanvas"></canvas>
 
     <div class="controls">
         <button id="snapBtn">Capture</button>
         <input type="file" id="fileInput" accept="image/*" multiple>
-        <button id="setEmbBtn" disabled>Add Enrolled Face</button>
-        <button id="clearEnrollBtn" style="background:#331100;">Clear All</button>
+        <button id="setEmbBtn" disabled>Add Face</button>
+        <button id="clearBtn" style="background:#331100;">Clear All</button>
     </div>
 
     <p id="cropInst" style="display:none; font-size: 11px; color: #0f0;">
-        Drag square over face, then click "Add Enrolled Face"
+        Drag square over face, then click "Add Face"
     </p>
     <div id="multiStatus">Upload multiple images, crop each face → add to gallery</div>
 </div>
@@ -171,9 +171,9 @@
     <canvas id="thumb" width="60" height="60"
     style="display:block;margin-bottom:6px;border:1px solid lime;"></canvas>
     <div id="output"></div>
-    <div class="enrolled-list">
-        <div style="font-size:10px; margin-bottom:4px;">Enrolled Faces (<span id="enrollCount">0</span>)</div>
-        <div id="enrolledGallery" style="max-height:180px; overflow-y:auto;"></div>
+    <div class="face-list">
+        <div style="font-size:10px; margin-bottom:4px;">Faces (<span id="faceCount">0</span>)</div>
+        <div id="faceGallery" style="max-height:180px; overflow-y:auto;"></div>
     </div>
 </div>
 
@@ -181,14 +181,14 @@
 let modelLoadingPromise = null;
 const INPUT_SIZE = 112;
 let net = null;
-let enrolledEmbeddings = []; // store { emb: Float32Array, thumbDataUrl: string, cropInfo: object }
+let embeddings = [];
 let setupStream = null;
 let isDragging = false;
-let isUsingLiveFeed = false; // start false: we are in upload mode initially, but after setup we switch
+let isUsingLiveFeed = false;
 let uploadedImg = new Image();
 let cropRect = { x: 0, y: 0, w: 0, h: 0 };
 let currentUploadedFileIndex = -1;
-let pendingFiles = []; // array of File objects
+let pendingFiles = [];
 let isLoadingModel = false;
 
 const video = document.getElementById('video');
@@ -201,9 +201,9 @@ const ctxCrop = cropCanvas.getContext('2d');
 const fileInput = document.getElementById('fileInput');
 const setEmbBtn = document.getElementById('setEmbBtn');
 const snapBtn = document.getElementById('snapBtn');
-const clearEnrollBtn = document.getElementById('clearEnrollBtn');
-const enrollCountSpan = document.getElementById('enrollCount');
-const enrolledGalleryDiv = document.getElementById('enrolledGallery');
+const clearBtn = document.getElementById('clearBtn');
+const countSpan = document.getElementById('faceCount');
+const faceGalleryDiv = document.getElementById('faceGallery');
 const multiStatus = document.getElementById('multiStatus');
 
 const offscreenCanvas = document.createElement('canvas');
@@ -221,7 +221,7 @@ window.onload = async () => {
         startPreviewLoop();
         isUsingLiveFeed = false;
         document.getElementById('cropInst').style.display = 'block';
-        multiStatus.innerText = "Upload multiple images, drag square on each face → 'Add Enrolled Face'";
+        multiStatus.innerText = "Upload multiple images, drag square on each face → 'Add Face'";
         
         // Load model on launch
         loadModelOnLaunch();
@@ -265,11 +265,11 @@ function loadModelOnLaunch() {
             net = await ADAFACE.load(device, blobUrl);
             URL.revokeObjectURL(blobUrl);
             multiStatus.innerText = "Model loaded! Ready to enroll faces.";
-            setEmbBtn.textContent = "Add Enrolled Face";
+            setEmbBtn.textContent = "Add Face";
         } catch(err) {
             console.error(err);
             multiStatus.innerText = "Model load failed: " + err;
-            setEmbBtn.textContent = "Add Enrolled Face";
+            setEmbBtn.textContent = "Add Face";
             throw err;
         }
     })();
@@ -304,7 +304,7 @@ fileInput.onchange = async (e) => {
     currentUploadedFileIndex = 0;
     isUsingLiveFeed = false;
     document.getElementById('cropInst').style.display = 'block';
-    multiStatus.innerText = `Loaded ${files.length} images. Crop face on each and click 'Add Enrolled Face'.`;
+    multiStatus.innerText = `Loaded ${files.length} images. Crop face on each and click 'Add Face'.`;
     loadNextFileForCrop();
 };
 
@@ -328,7 +328,7 @@ function loadNextFileForCrop() {
             ctxCrop.drawImage(uploadedImg, 0, 0);
             cropRect = { x: 0, y: 0, w: 0, h: 0 };
             setEmbBtn.disabled = true;
-            multiStatus.innerText = `Image ${currentUploadedFileIndex+1}/${pendingFiles.length}: Draw square around face, then click 'Add Enrolled Face'`;
+            multiStatus.innerText = `Image ${currentUploadedFileIndex+1}/${pendingFiles.length}: Draw square around face, then click 'Add Face'`;
         };
         uploadedImg.src = event.target.result;
     };
@@ -350,7 +350,7 @@ snapBtn.onclick = () => {
         const capturedFile = new File([blob], `snap_${Date.now()}.jpg`, { type: 'image/jpeg' });
         if (currentUploadedFileIndex >= 0 && currentUploadedFileIndex < pendingFiles.length) {
             pendingFiles.splice(currentUploadedFileIndex + 1, 0, capturedFile);
-            multiStatus.innerText = `Snapshot added. ${pendingFiles.length} total images. Click 'Add Enrolled Face' after cropping.`;
+            multiStatus.innerText = `Snapshot added. ${pendingFiles.length} total images. Click 'Add Face' after cropping.`;
         } else {
             pendingFiles.push(capturedFile);
             if (currentUploadedFileIndex === -1 || currentUploadedFileIndex >= pendingFiles.length - 1) {
@@ -478,12 +478,12 @@ setEmbBtn.onclick = async () => {
     const out = await net(input);
     const embedding = new Float32Array(out[0]);
     
-    enrolledEmbeddings.push({
+    embeddings.push({
         emb: embedding,
         thumbDataUrl: thumbDataUrl,
         cropRectInfo: { x: realX, y: realY, side: side }
     });
-    updateEnrolledGallery();
+    updateGallery();
     
     if (currentUploadedFileIndex < pendingFiles.length - 1) {
         currentUploadedFileIndex++;
@@ -492,7 +492,7 @@ setEmbBtn.onclick = async () => {
         cropRect = { x: 0, y: 0, w: 0, h: 0 };
         setEmbBtn.disabled = true;
     } else if (currentUploadedFileIndex === pendingFiles.length - 1) {
-        multiStatus.innerText = `Enrolled face from last image. Total enrolled: ${enrolledEmbeddings.length}. You can add more or start recognition.`;
+        multiStatus.innerText = `Enrolled face from last image. Total enrolled: ${embeddings.length}. You can add more or start recognition.`;
         setEmbBtn.disabled = true;
         if (setupStream) {
             setupStream.getTracks().forEach(t => t.stop());
@@ -503,18 +503,18 @@ setEmbBtn.onclick = async () => {
         requestAnimationFrame(processFrame);
     } else {
         setEmbBtn.disabled = true;
-        multiStatus.innerText = `Face enrolled. Total: ${enrolledEmbeddings.length}`;
+        multiStatus.innerText = `Face enrolled. Total: ${embeddings.length}`;
     }
-    setEmbBtn.textContent = "Add Enrolled Face";
+    setEmbBtn.textContent = "Add Face";
 };
 
-function updateEnrolledGallery() {
-    enrollCountSpan.innerText = enrolledEmbeddings.length;
-    enrolledGalleryDiv.innerHTML = '';
-    for (let idx = 0; idx < enrolledEmbeddings.length; idx++) {
-        const item = enrolledEmbeddings[idx];
+function updateGallery() {
+    countSpan.innerText = embeddings.length;
+    faceGalleryDiv.innerHTML = '';
+    for (let idx = 0; idx < embeddings.length; idx++) {
+        const item = embeddings[idx];
         const div = document.createElement('div');
-        div.className = 'enrolled-thumb';
+        div.className = 'face-thumb';
         const canvas = document.createElement('canvas');
         canvas.width = 45;
         canvas.height = 45;
@@ -538,9 +538,9 @@ function updateEnrolledGallery() {
         removeBtn.className = 'remove-btn';
         removeBtn.onclick = (e) => {
             e.stopPropagation();
-            enrolledEmbeddings.splice(idx, 1);
-            updateEnrolledGallery();
-            if (enrolledEmbeddings.length === 0 && setupUI.style.display === 'none') {
+            embeddings.splice(idx, 1);
+            updateGallery();
+            if (embeddings.length === 0 && setupUI.style.display === 'none') {
                 // re-show setup UI if needed
             }
         };
@@ -548,7 +548,7 @@ function updateEnrolledGallery() {
         div.appendChild(span);
         div.appendChild(percentSpan);
         div.appendChild(removeBtn);
-        enrolledGalleryDiv.appendChild(div);
+        faceGalleryDiv.appendChild(div);
     }
 }
 
@@ -558,14 +558,14 @@ async function processFrame() {
         requestAnimationFrame(processFrame);
         return;
     }
-    if (!net || enrolledEmbeddings.length === 0) {
+    if (!net || embeddings.length === 0) {
         overlay.width = video.clientWidth;
         overlay.height = video.clientHeight;
         overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
         overlayCtx.font = "16px monospace";
         overlayCtx.fillStyle = "yellow";
         overlayCtx.shadowBlur = 0;
-        overlayCtx.fillText("No enrolled faces. Add faces via upload.", 20, 40);
+        overlayCtx.fillText("No Faces. Add faces via upload.", 20, 40);
         requestAnimationFrame(processFrame);
         return;
     }
@@ -593,10 +593,10 @@ async function processFrame() {
     const queryEmb = out[0];
     
     const similarities = [];
-    for (let i = 0; i < enrolledEmbeddings.length; i++) {
+    for (let i = 0; i < embeddings.length; i++) {
         let sim = 0;
-        const enrolledEmb = enrolledEmbeddings[i].emb;
-        for (let j = 0; j < queryEmb.length; j++) sim += enrolledEmb[j] * queryEmb[j];
+        const faceEmb = embeddings[i].emb;
+        for (let j = 0; j < queryEmb.length; j++) sim += faceEmb[j] * queryEmb[j];
         similarities.push(sim);
     }
     
@@ -612,7 +612,7 @@ async function processFrame() {
     const bestPercent = Math.min(99, Math.round(bestSim * 100));
     
     // Update each thumbnail in gallery with its similarity percentage
-    const galleryItems = document.querySelectorAll('.enrolled-thumb');
+    const galleryItems = document.querySelectorAll('.face-thumb');
     for (let i = 0; i < galleryItems.length && i < similarities.length; i++) {
         const sim = similarities[i];
         const percent = Math.min(99, Math.max(0, Math.round(sim * 100)));
@@ -624,7 +624,6 @@ async function processFrame() {
             percentSpan.style.display = 'block';
             percentSpan.style.fontWeight = 'bold';
             percentSpan.style.marginTop = '2px';
-            // Insert before the remove button
             const removeBtn = galleryItems[i].querySelector('.remove-btn');
             galleryItems[i].insertBefore(percentSpan, removeBtn);
         }
@@ -632,13 +631,13 @@ async function processFrame() {
         percentSpan.style.color = sim > 0.45 ? '#0f0' : (sim > 0.3 ? '#fa0' : '#f44');
     }
     
-    outputEl.innerHTML = `Best match: ${bestPercent}% (${enrolledEmbeddings.length} enrolled)`;
+    outputEl.innerHTML = `Best match: ${bestPercent}% (${embeddings.length} faces)`;
     outputEl.style.color = bestSim > 0.45 ? 'lime' : (bestSim > 0.3 ? '#ffaa44' : '#ff4444');
     
-    // show best match thumbnail
-    if (bestSim > 0.2 && enrolledEmbeddings.length > 0) {
+
+    if (bestSim > 0.2 && embeddings.length > 0) {
         const bestThumb = new Image();
-        bestThumb.src = enrolledEmbeddings[bestIdx].thumbDataUrl;
+        bestThumb.src = embeddings[bestIdx].thumbDataUrl;
         thumbCtx.drawImage(bestThumb, 0, 0, 60, 60);
     } else {
         thumbCtx.fillStyle = "#222";
@@ -651,14 +650,12 @@ async function processFrame() {
     requestAnimationFrame(processFrame);
 }
 
-// --- CLEAR ALL ENROLLMENTS ---
-clearEnrollBtn.onclick = () => {
-    enrolledEmbeddings = [];
-    updateEnrolledGallery();
-    multiStatus.innerText = "All enrolled faces cleared. You can upload images again.";
+clearBtn.onclick = () => {
+    embeddings = [];
+    updateGallery();
+    multiStatus.innerText = "All Faces cleared. You can upload images again.";
     if (setupUI.style.display === 'none') {
-        // if recognition running, show warning
-        outputEl.innerHTML = "No enrolled faces. Please add faces.";
+        outputEl.innerHTML = "No Faces. Please add faces.";
     }
     thumbCtx.fillStyle = "#111";
     thumbCtx.fillRect(0,0,60,60);
@@ -682,7 +679,6 @@ async function getDevice() {
     return await adapter.requestDevice();
 }
 
-// small helper to manually load after clear
 window.loadNextManually = function() {
     if (currentUploadedFileIndex + 1 < pendingFiles.length) {
         currentUploadedFileIndex++;
