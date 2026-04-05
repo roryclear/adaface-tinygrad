@@ -171,7 +171,6 @@
     style="display:block;margin-bottom:6px;border:1px solid lime;"></canvas>
     <div id="output"></div>
     <div class="face-list">
-        <div style="font-size:10px; margin-bottom:4px;">Faces (<span id="faceCount">0</span>)</div>
         <div id="faceGallery" style="max-height:180px; overflow-y:auto;"></div>
     </div>
 </div>
@@ -200,7 +199,6 @@ const ctxCrop = cropCanvas.getContext('2d');
 const fileInput = document.getElementById('fileInput');
 const setEmbBtn = document.getElementById('setEmbBtn');
 const snapBtn = document.getElementById('snapBtn');
-const countSpan = document.getElementById('faceCount');
 const faceGalleryDiv = document.getElementById('faceGallery');
 const multiStatus = document.getElementById('multiStatus');
 
@@ -496,7 +494,6 @@ setEmbBtn.onclick = async () => {
 };
 
 function updateGallery() {
-    countSpan.innerText = embeddings.length;
     faceGalleryDiv.innerHTML = '';
     for (let idx = 0; idx < embeddings.length; idx++) {
         const item = embeddings[idx];
