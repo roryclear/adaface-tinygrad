@@ -118,6 +118,8 @@
 <canvas id="overlay"></canvas>
 
 <div id="outputContainer">
+    <canvas id="thumb" width="60" height="60"
+    style="display:block;margin-bottom:6px;border:1px solid lime;"></canvas>
     <div id="output"></div>
 </div>
 
@@ -146,6 +148,7 @@ const offscreenCanvas = document.createElement('canvas');
 offscreenCanvas.width = INPUT_SIZE;
 offscreenCanvas.height = INPUT_SIZE;
 const offscreenCtx = offscreenCanvas.getContext('2d');
+const thumbCtx = document.getElementById('thumb').getContext('2d');
 
 // --- INIT ---
 window.onload = async () => {
@@ -269,6 +272,7 @@ setEmbBtn.onclick = async () => {
     const side = Math.abs(cropRect.w);
 
     offscreenCtx.drawImage(uploadedImg, realX, realY, side, side, 0, 0, INPUT_SIZE, INPUT_SIZE);
+    thumbCtx.drawImage(offscreenCanvas, 0, 0, 60, 60);
 
     const url = "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors";
     const res = await fetch(url);
