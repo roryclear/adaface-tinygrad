@@ -200,7 +200,6 @@ window.onload = async () => {
         outputEl.textContent = "Ready. Upload images or capture.";
         startPreviewLoop();
         isUsingLiveFeed = false;
-        
         loadModelOnLaunch();
     } catch (e) {
         outputEl.textContent = "Error: Camera access denied.";
@@ -210,7 +209,6 @@ window.onload = async () => {
 
 function loadModelOnLaunch() {
     if (modelLoadingPromise) return modelLoadingPromise;
-    
     modelLoadingPromise = (async () => {
         const url = "https://huggingface.co/roryclear/AdaFace/resolve/main/adaface_ir50_ms1mv2.safetensors";
         try {
@@ -235,6 +233,7 @@ function loadModelOnLaunch() {
             URL.revokeObjectURL(blobUrl);
             setEmbBtn.textContent = "Add Face";
         } catch(err) {
+            alert(err.message);
             console.error(err);
             setEmbBtn.textContent = "Add Face";
             throw err;
