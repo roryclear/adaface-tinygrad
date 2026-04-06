@@ -24,7 +24,7 @@
         }
         #video, #overlay {
             position: absolute;
-            top: 50%;
+            top: 45%;
             left: 50%;
             transform: translate(-50%, -50%) scaleX(-1);
             max-width: 100vw;
@@ -33,7 +33,7 @@
         #overlay { pointer-events: none; }
         #outputContainer {
             position: absolute;
-            bottom: 20px;
+            bottom: 80px;
             left: 20px;
             background: rgba(0,0,0,0.8);
             border: 1px solid lime;
@@ -129,6 +129,12 @@
         }
         .current-sim {
             font-weight: bold;
+        }
+
+        @media (max-width: 600px) {
+            #video, #overlay {
+                top: 42%;
+            }
         }
     </style>
 </head>
