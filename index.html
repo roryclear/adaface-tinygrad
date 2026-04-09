@@ -307,8 +307,7 @@ function loadNextFileForCrop() {
             cropCanvas.width = uploadedImg.width;
             cropCanvas.height = uploadedImg.height;
             ctxCrop.drawImage(uploadedImg, 0, 0);
-            cropRect = { x: 0, y: 0, w: 0, h: 0 };
-            setEmbBtn.disabled = true;
+            initCropSquare();
             multiStatus.innerText = `Image ${currentUploadedFileIndex+1}/${pendingFiles.length}: Draw square around face, then click 'Add Face'`;
         };
         uploadedImg.src = event.target.result;
@@ -340,6 +339,7 @@ snapBtn.onclick = () => {
             multiStatus.innerText = `Snapshot added. Total ${pendingFiles.length} images.`;
         }
         fileInput.value = '';
+        loadNextFileForCrop();
     }, 'image/jpeg');
 };
 
@@ -352,8 +352,7 @@ function loadFileByIndex(index) {
             cropCanvas.width = uploadedImg.width;
             cropCanvas.height = uploadedImg.height;
             ctxCrop.drawImage(uploadedImg, 0, 0);
-            cropRect = { x: 0, y: 0, w: 0, h: 0 };
-            setEmbBtn.disabled = true;
+            initCropSquare();
             multiStatus.innerText = `Image ${index+1}/${pendingFiles.length}: Drag square, then Add.`;
         };
         uploadedImg.src = event.target.result;
@@ -372,51 +371,156 @@ function getCanvasCoords(e) {
     };
 }
 
-function startCrop(e) {
-    if (isUsingLiveFeed) return;
-    if (!uploadedImg.src) return;
-    e.preventDefault();
-    const pos = getCanvasCoords(e);
-    cropRect.x = pos.x;
-    cropRect.y = pos.y;
-    isDragging = true;
-}
+let dragOffset = { x: 0, y: 0 };
+let initialPinchDistance = null;
+let initialSize = null;
 
-function moveCrop(e) {
-    if (!isDragging) return;
-    e.preventDefault();
-    if (!uploadedImg.src) return;
-    const pos = getCanvasCoords(e);
-    let side = Math.max(
-        Math.abs(pos.x - cropRect.x),
-        Math.abs(pos.y - cropRect.y)
-    );
-    cropRect.w = (pos.x < cropRect.x) ? -side : side;
-    cropRect.h = (pos.y < cropRect.y) ? -side : side;
-
+function drawCrop() {
     ctxCrop.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
     ctxCrop.drawImage(uploadedImg, 0, 0);
     ctxCrop.strokeStyle = 'cyan';
-    ctxCrop.lineWidth = 3;
+    ctxCrop.lineWidth = Math.max(3, cropCanvas.width * 0.005);
     ctxCrop.strokeRect(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+    const size = 12;
+    ctxCrop.fillStyle = 'cyan';
+    ctxCrop.fillRect(
+        cropRect.x + cropRect.w - size,
+        cropRect.y + cropRect.h - size,
+        size,
+        size
+    );
 }
 
-function endCrop() {
-    isDragging = false;
+let isResizing = false;
+
+function isInResizeCorner(pos) {
+    const size = 16;
+    return (
+        pos.x > cropRect.x + cropRect.w - size &&
+        pos.y > cropRect.y + cropRect.h - size
+    );
+}
+
+function initCropSquare() {
+    const size = Math.min(cropCanvas.width, cropCanvas.height) * 0.4;
+
+    cropRect = {
+        x: (cropCanvas.width - size) / 2,
+        y: (cropCanvas.height - size) / 2,
+        w: size,
+        h: size
+    };
+
+    setEmbBtn.disabled = false;
+    drawCrop();
+}
+
+function clampCrop() {
+    cropRect.x = Math.max(0, Math.min(cropRect.x, cropCanvas.width - cropRect.w));
+    cropRect.y = Math.max(0, Math.min(cropRect.y, cropCanvas.height - cropRect.h));
+}
+
+// DRAG MOVE
+function startMove(e) {
     if (!uploadedImg.src) return;
-    if (Math.abs(cropRect.w) > 10 && Math.abs(cropRect.h) > 10) {
-        setEmbBtn.disabled = false;
-    } else {
-        setEmbBtn.disabled = true;
+
+    const pos = getCanvasCoords(e);
+
+    if (isInResizeCorner(pos)) {
+        isResizing = true;
+        return;
     }
+
+    dragOffset.x = pos.x - cropRect.x;
+    dragOffset.y = pos.y - cropRect.y;
+    isDragging = true;
 }
 
-cropCanvas.addEventListener('mousedown', startCrop);
-cropCanvas.addEventListener('mousemove', moveCrop);
-cropCanvas.addEventListener('mouseup', endCrop);
-cropCanvas.addEventListener('touchstart', startCrop, { passive: false });
-cropCanvas.addEventListener('touchmove', moveCrop, { passive: false });
-cropCanvas.addEventListener('touchend', endCrop);
+cropCanvas.addEventListener('mousedown', startMove);
+cropCanvas.addEventListener('mousemove', moveSquare);
+cropCanvas.addEventListener('mouseup', endMove);
+
+cropCanvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) startMove(e);
+}, { passive: false });
+
+cropCanvas.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 1) moveSquare(e);
+    else if (e.touches.length === 2) handlePinch(e);
+}, { passive: false });
+
+cropCanvas.addEventListener('touchend', () => {
+    endMove();
+    endPinch();
+});
+
+function moveSquare(e) {
+    const pos = getCanvasCoords(e);
+    if (isResizing) {
+        let newSize = pos.x - cropRect.x;
+        newSize = Math.max(40, newSize);
+
+        cropRect.w = newSize;
+        cropRect.h = newSize;
+
+        clampCrop();
+        drawCrop();
+        return;
+    }
+
+    // MOVE
+    if (!isDragging || e.touches?.length === 2) return;
+
+    cropRect.x = pos.x - dragOffset.x;
+    cropRect.y = pos.y - dragOffset.y;
+
+    clampCrop();
+    drawCrop();
+}
+
+function endMove() {
+    isDragging = false;
+    isResizing = false;
+}
+
+// PINCH RESIZE
+function getTouchDistance(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function handlePinch(e) {
+    if (e.touches.length !== 2) return;
+
+    e.preventDefault();
+
+    const dist = getTouchDistance(e.touches);
+
+    if (!initialPinchDistance) {
+        initialPinchDistance = dist;
+        initialSize = cropRect.w;
+        return;
+    }
+
+    const scale = dist / initialPinchDistance;
+    let newSize = Math.max(40, initialSize * scale);
+
+    const cx = cropRect.x + cropRect.w / 2;
+    const cy = cropRect.y + cropRect.h / 2;
+
+    cropRect.w = newSize;
+    cropRect.h = newSize;
+    cropRect.x = cx - newSize / 2;
+    cropRect.y = cy - newSize / 2;
+
+    clampCrop();
+    drawCrop();
+}
+
+function endPinch() {
+    initialPinchDistance = null;
+}
 
 setEmbBtn.onclick = async () => {
     if (!uploadedImg.src) return;
@@ -466,8 +570,7 @@ setEmbBtn.onclick = async () => {
         currentUploadedFileIndex++;
         loadFileByIndex(currentUploadedFileIndex);
         multiStatus.innerText = `Added, next image ${currentUploadedFileIndex+1}/${pendingFiles.length}`;
-        cropRect = { x: 0, y: 0, w: 0, h: 0 };
-        setEmbBtn.disabled = true;
+        initCropSquare();
     } else if (currentUploadedFileIndex === pendingFiles.length - 1) {
         multiStatus.innerText = `added face from last image. Faces: ${embeddings.length}.`;
         setEmbBtn.disabled = true;
