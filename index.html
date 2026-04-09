@@ -614,13 +614,16 @@ function updateGallery() {
             ctx.drawImage(img, 0, 0, 45, 45);
         };
         img.src = item.thumbDataUrl;
+        
         const percentSpan = document.createElement('span');
         percentSpan.className = 'sim-percent';
-        percentSpan.innerText = '--%';
+        percentSpan.textContent = '--%';
         percentSpan.style.fontSize = '10px';
         percentSpan.style.display = 'block';
         percentSpan.style.fontWeight = 'bold';
         percentSpan.style.marginTop = '2px';
+        percentSpan.style.color = '#ccc'; // Default gray
+        
         div.appendChild(canvas);
         div.appendChild(percentSpan);
         faceGalleryDiv.appendChild(div);
@@ -719,6 +722,8 @@ async function processFrame() {
         const sim = similarities[i];
         const percent = Math.min(99, Math.max(0, Math.round(sim * 100)));
         let percentSpan = galleryItems[i].querySelector('.sim-percent');
+        
+        // Create span if it doesn't exist
         if (!percentSpan) {
             percentSpan = document.createElement('span');
             percentSpan.className = 'sim-percent';
@@ -726,14 +731,31 @@ async function processFrame() {
             percentSpan.style.display = 'block';
             percentSpan.style.fontWeight = 'bold';
             percentSpan.style.marginTop = '2px';
+            galleryItems[i].appendChild(percentSpan);
         }
-        percentSpan.innerText = `${percent}%`;
-        percentSpan.style.color = sim > 0.45 ? '#0f0' : (sim > 0.3 ? '#fa0' : '#f44');
+        
+        // Update text
+        percentSpan.textContent = `${percent}%`;
+        
+        // Force color update by directly setting style (with !important to override any lingering styles)
+        if (percent >= 60) {
+            percentSpan.style.setProperty('color', '#0f0', 'important');
+        } else if (percent >= 30) {
+            percentSpan.style.setProperty('color', '#fa0', 'important');
+        } else {
+            percentSpan.style.setProperty('color', '#f44', 'important');
+        }
     }
-    
+
+    outputEl.textContent = `Best match: ${bestPercent}%`;
     outputEl.innerHTML = `Best match: ${bestPercent}%`;
-    outputEl.style.color = bestSim > 0.45 ? 'lime' : (bestSim > 0.3 ? '#ffaa44' : '#ff4444');
-    
+    if (bestPercent >= 60) {
+        outputEl.style.setProperty('color', 'lime', 'important');
+    } else if (bestPercent >= 30) {
+        outputEl.style.setProperty('color', '#ffaa44', 'important');
+    } else {
+        outputEl.style.setProperty('color', '#ff4444', 'important');
+    }
 
     if (bestSim > 0.2 && embeddings.length > 0) {
         const bestThumb = new Image();
