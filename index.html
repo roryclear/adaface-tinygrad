@@ -664,6 +664,26 @@ async function processFrame() {
     overlayCtx.lineWidth = 2;
     overlayCtx.strokeRect(squareX, squareY, squareSize, squareSize);
     
+    // === DRAW EYE GUIDES (same ratios as crop UI) ===
+    const dotRadius = Math.max(4, squareSize * 0.02);
+
+    // same relative positions as setup
+    const dotY = squareY + squareSize * 0.455;
+    const dot1X = squareX + squareSize * 0.34;
+    const dot2X = squareX + squareSize * 0.65;
+
+    overlayCtx.fillStyle = 'cyan';
+
+    // left eye
+    overlayCtx.beginPath();
+    overlayCtx.arc(dot1X, dotY, dotRadius, 0, Math.PI * 2);
+    overlayCtx.fill();
+
+    // right eye
+    overlayCtx.beginPath();
+    overlayCtx.arc(dot2X, dotY, dotRadius, 0, Math.PI * 2);
+    overlayCtx.fill();
+
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     const cropSize = Math.min(vw, vh) * 0.5;
