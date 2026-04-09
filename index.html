@@ -308,7 +308,7 @@ function loadNextFileForCrop() {
             cropCanvas.height = uploadedImg.height;
             ctxCrop.drawImage(uploadedImg, 0, 0);
             initCropSquare();
-            multiStatus.innerText = `Image ${currentUploadedFileIndex+1}/${pendingFiles.length}: Draw square around face, then click 'Add Face'`;
+            multiStatus.innerText = `Image ${currentUploadedFileIndex+1}/${pendingFiles.length}: Move and resize square around face (eyes where dots are), then click 'Add Face'`;
         };
         uploadedImg.src = event.target.result;
     };
@@ -353,7 +353,7 @@ function loadFileByIndex(index) {
             cropCanvas.height = uploadedImg.height;
             ctxCrop.drawImage(uploadedImg, 0, 0);
             initCropSquare();
-            multiStatus.innerText = `Image ${index+1}/${pendingFiles.length}: Drag square, then Add.`;
+            multiStatus.innerText = `Image ${index+1}/${pendingFiles.length}: Move and resize square around face (eyes where dots are), then click 'Add Face'`;
         };
         uploadedImg.src = event.target.result;
     };
@@ -389,6 +389,17 @@ function drawCrop() {
         size,
         size
     );
+    const dotRadius = Math.max(4, cropCanvas.width * 0.006);
+    const dotY = cropRect.y + cropRect.h * 0.455;
+    const dot1X = cropRect.x + cropRect.w * 0.34;
+    const dot2X = cropRect.x + cropRect.w * 0.65;
+    ctxCrop.fillStyle = 'cyan';
+    ctxCrop.beginPath();
+    ctxCrop.arc(dot1X, dotY, dotRadius, 0, Math.PI * 2);
+    ctxCrop.fill();
+    ctxCrop.beginPath();
+    ctxCrop.arc(dot2X, dotY, dotRadius, 0, Math.PI * 2);
+    ctxCrop.fill();
 }
 
 let isResizing = false;
